@@ -258,7 +258,7 @@ export default function App() {
       setTeeAccuracy('center');
       setApproachAccuracy('center');
     }
-  }, [currentHoleData.gir, currentHoleData.fairway, currentHole, holeStats]);
+  }, [currentHole, holeStats]);
 
   // Load courses from Supabase on app startup
   useEffect(() => {
