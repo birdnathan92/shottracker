@@ -12,10 +12,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // Types for database operations
 export interface DbRound {
   id: string;
-  course_id: string;
-  date: string;
+  course_name: string;
+  date: number;
   total_score: number;
-  total_putts: number;
+  total_par: number;
+  hole_stats_data: string; // JSON string of hole stats
   created_at: string;
   updated_at: string;
 }

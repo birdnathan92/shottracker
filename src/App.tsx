@@ -279,8 +279,17 @@ export default function App() {
       try {
         const roundsFromSupabase = await supabaseDb.getRounds();
         if (roundsFromSupabase && roundsFromSupabase.length > 0) {
-          setRounds(roundsFromSupabase);
-          localStorage.setItem('golf_rounds', JSON.stringify(roundsFromSupabase));
+          // Map Supabase field names to app field names and parse hole stats
+          const mappedRounds = roundsFromSupabase.map((round: any) => ({
+            id: round.id,
+            courseName: round.course_name,
+            date: round.date,
+            totalScore: round.total_score,
+            totalPar: round.total_par,
+            holeStats: round.hole_stats_data ? JSON.parse(round.hole_stats_data) : {}
+          }));
+          setRounds(mappedRounds);
+          localStorage.setItem('golf_rounds', JSON.stringify(mappedRounds));
         }
       } catch (error) {
         console.error('Failed to load rounds from Supabase:', error);
@@ -334,40 +343,7 @@ export default function App() {
     loadClubsFromSupabase();
   }, []);
 
-  // Load hole stats from Supabase on app startup
-  useEffect(() => {
-    const loadHoleStatsFromSupabase = async () => {
-      if (!isSupabaseAvailable()) return;
-
-      try {
-        const holeStatsFromSupabase = await supabaseDb.getHoleStats();
-        if (holeStatsFromSupabase && holeStatsFromSupabase.length > 0) {
-          // Convert array to Record format
-          const statsRecord: Record<number, HoleStats> = {};
-          holeStatsFromSupabase.forEach((stat: any) => {
-            statsRecord[stat.hole_number] = {
-              score: stat.score,
-              putts: stat.putts,
-              fairway: stat.fairway,
-              gir: stat.gir,
-              upAndDown: stat.up_and_down,
-              sandSave: stat.sand_save,
-              teeAccuracy: stat.tee_accuracy,
-              approachAccuracy: stat.approach_accuracy,
-              par: stat.par,
-              distance: stat.distance,
-            };
-          });
-          setHoleStats(statsRecord);
-          localStorage.setItem('golf_hole_stats', JSON.stringify(statsRecord));
-        }
-      } catch (error) {
-        console.error('Failed to load hole stats from Supabase:', error);
-      }
-    };
-
-    loadHoleStatsFromSupabase();
-  }, []);
+  // Hole stats are now loaded with rounds from Supabase, fallback to localStorage
 
   // Sync courses to Supabase
   useEffect(() => {
@@ -403,10 +379,11 @@ export default function App() {
         for (const round of rounds) {
           await supabaseDb.saveRound({
             id: round.id,
-            course_id: round.courseId,
+            course_name: round.courseName,
             date: round.date,
             total_score: round.totalScore,
-            total_putts: round.totalPutts,
+            total_par: round.totalPar,
+            hole_stats_data: JSON.stringify(round.holeStats),
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           });
@@ -473,37 +450,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [bag]);
 
-  // Sync hole stats to Supabase
-  useEffect(() => {
-    if (!isSupabaseAvailable()) return;
-
-    const syncHoleStats = async () => {
-      try {
-        for (const [holeNumber, stats] of Object.entries(holeStats)) {
-          await supabaseDb.saveHoleStats({
-            hole_number: parseInt(holeNumber),
-            score: stats.score,
-            putts: stats.putts,
-            fairway: stats.fairway,
-            gir: stats.gir,
-            up_and_down: stats.upAndDown,
-            sand_save: stats.sandSave,
-            tee_accuracy: stats.teeAccuracy,
-            approach_accuracy: stats.approachAccuracy,
-            par: stats.par,
-            distance: stats.distance,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          });
-        }
-      } catch (error) {
-        console.error('Failed to sync hole stats to Supabase:', error);
-      }
-    };
-
-    const timer = setTimeout(syncHoleStats, 1000); // Debounce 1 second
-    return () => clearTimeout(timer);
-  }, [holeStats]);
+  // Hole stats are now synced with rounds when endRound is called
 
   // Geolocation tracking
   useEffect(() => {
