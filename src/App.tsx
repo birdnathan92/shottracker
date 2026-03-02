@@ -246,6 +246,44 @@ export default function App() {
     if (savedApproachShots) setApproachShots(JSON.parse(savedApproachShots));
   }, []);
 
+  // Load courses from Supabase on app startup
+  useEffect(() => {
+    const loadCoursesFromSupabase = async () => {
+      if (!isSupabaseAvailable()) return;
+
+      try {
+        const coursesFromSupabase = await supabaseDb.getCourses();
+        if (coursesFromSupabase && coursesFromSupabase.length > 0) {
+          setCourses(coursesFromSupabase);
+          localStorage.setItem('golf_courses', JSON.stringify(coursesFromSupabase));
+        }
+      } catch (error) {
+        console.error('Failed to load courses from Supabase:', error);
+      }
+    };
+
+    loadCoursesFromSupabase();
+  }, []);
+
+  // Load rounds from Supabase on app startup
+  useEffect(() => {
+    const loadRoundsFromSupabase = async () => {
+      if (!isSupabaseAvailable()) return;
+
+      try {
+        const roundsFromSupabase = await supabaseDb.getRounds();
+        if (roundsFromSupabase && roundsFromSupabase.length > 0) {
+          setRounds(roundsFromSupabase);
+          localStorage.setItem('golf_rounds', JSON.stringify(roundsFromSupabase));
+        }
+      } catch (error) {
+        console.error('Failed to load rounds from Supabase:', error);
+      }
+    };
+
+    loadRoundsFromSupabase();
+  }, []);
+
   // Sync courses to Supabase
   useEffect(() => {
     if (!isSupabaseAvailable()) return;
