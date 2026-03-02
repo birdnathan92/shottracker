@@ -138,7 +138,7 @@ export const supabaseDb = {
   async saveDrive(drive: DbDrive) {
     const { data, error } = await supabase
       .from('drives')
-      .insert(drive)
+      .upsert(drive, { onConflict: 'id' })
       .select();
     if (error) throw error;
     return data?.[0];
@@ -152,6 +152,14 @@ export const supabaseDb = {
     const { data, error } = await query.order('timestamp', { ascending: false });
     if (error) throw error;
     return data || [];
+  },
+
+  async deleteDrive(id: string) {
+    const { error } = await supabase
+      .from('drives')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
   },
 
   // Hole stats operations

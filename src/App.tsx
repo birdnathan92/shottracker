@@ -583,7 +583,16 @@ export default function App() {
     return course.holes[currentHole - 1].distance;
   };
 
-  const deleteDrive = (id: string) => {
+  const deleteDrive = async (id: string) => {
+    // Delete from Supabase first
+    if (isSupabaseAvailable()) {
+      try {
+        await supabaseDb.deleteDrive(id);
+      } catch (error) {
+        console.error('Failed to delete drive from Supabase:', error);
+      }
+    }
+    // Then delete from local state
     setHistory(history.filter(d => d.id !== id));
   };
 
@@ -739,8 +748,17 @@ export default function App() {
     setIsCourseModalOpen(true);
   };
 
-  const deleteCourse = (id: string) => {
+  const deleteCourse = async (id: string) => {
     if (confirm('Delete this course?')) {
+      // Delete from Supabase first
+      if (isSupabaseAvailable()) {
+        try {
+          await supabaseDb.deleteCourse(id);
+        } catch (error) {
+          console.error('Failed to delete course from Supabase:', error);
+        }
+      }
+      // Then delete from local state
       setCourses(courses.filter(c => c.id !== id));
     }
   };
