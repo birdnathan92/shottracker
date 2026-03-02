@@ -251,19 +251,6 @@ export default function App() {
     if (savedApproachShots) setApproachShots(JSON.parse(savedApproachShots));
   }, []);
 
-  // Auto-select accuracy buttons when GIR and Fairway are both true
-  useEffect(() => {
-    const currentHoleData = holeStats[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
-    if (currentHoleData.gir && currentHoleData.fairway) {
-      // Only update if values are different to prevent pulsing
-      if (currentHoleData.teeAccuracy !== 'center') {
-        setTeeAccuracy('center');
-      }
-      if (currentHoleData.approachAccuracy !== 'center') {
-        setApproachAccuracy('center');
-      }
-    }
-  }, [currentHole, holeStats]);
 
   // Load courses from Supabase on app startup
   useEffect(() => {
@@ -330,8 +317,14 @@ export default function App() {
       try {
         const clubsFromSupabase = await supabaseDb.getClubs();
         if (clubsFromSupabase && clubsFromSupabase.length > 0) {
-          setBag(clubsFromSupabase);
-          localStorage.setItem('golf_bag', JSON.stringify(clubsFromSupabase));
+          // Map Supabase field names to app field names (avg_distance -> avgDistance)
+          const mappedClubs = clubsFromSupabase.map((club: any) => ({
+            id: club.id,
+            name: club.name,
+            avgDistance: club.avg_distance || 0
+          }));
+          setBag(mappedClubs);
+          localStorage.setItem('golf_bag', JSON.stringify(mappedClubs));
         }
       } catch (error) {
         console.error('Failed to load clubs from Supabase:', error);
@@ -821,6 +814,31 @@ export default function App() {
     // Close modal
     setIsRoundModalOpen(false);
     setSelectedRound(null);
+  };
+
+  const saveBag = async () => {
+    // Save to localStorage immediately
+    localStorage.setItem('golf_bag', JSON.stringify(bag));
+
+    // Save to Supabase
+    if (isSupabaseAvailable()) {
+      try {
+        for (const club of bag) {
+          await supabaseDb.saveClub({
+            id: club.id,
+            name: club.name,
+            avg_distance: club.avgDistance,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        }
+      } catch (error) {
+        console.error('Failed to save clubs to Supabase:', error);
+      }
+    }
+
+    // Close modal
+    setIsBagModalOpen(false);
   };
 
   const endRound = () => {
@@ -1758,8 +1776,8 @@ export default function App() {
               </div>
 
               <div className="p-6 bg-stone-50 border-t border-stone-100">
-                <button 
-                  onClick={() => setIsBagModalOpen(false)}
+                <button
+                  onClick={saveBag}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-2xl shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all active:scale-95"
                 >
                   <Save size={20} />
