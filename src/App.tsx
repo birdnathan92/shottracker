@@ -255,8 +255,13 @@ export default function App() {
   useEffect(() => {
     const currentHoleData = holeStats[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
     if (currentHoleData.gir && currentHoleData.fairway) {
-      setTeeAccuracy('center');
-      setApproachAccuracy('center');
+      // Only update if values are different to prevent pulsing
+      if (currentHoleData.teeAccuracy !== 'center') {
+        setTeeAccuracy('center');
+      }
+      if (currentHoleData.approachAccuracy !== 'center') {
+        setApproachAccuracy('center');
+      }
     }
   }, [currentHole, holeStats]);
 
@@ -634,9 +639,15 @@ export default function App() {
   const setTeeAccuracy = (accuracy: 'left' | 'center' | 'right') => {
     setHoleStats(prev => {
       const current = prev[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
+      const newAccuracy = current.teeAccuracy === accuracy ? null : accuracy;
+
       return {
         ...prev,
-        [currentHole]: { ...current, teeAccuracy: current.teeAccuracy === accuracy ? null : accuracy }
+        [currentHole]: {
+          ...current,
+          teeAccuracy: newAccuracy,
+          fairway: newAccuracy === 'center' ? true : false  // AUTO-SYNC: fairway linked to center accuracy
+        }
       };
     });
   };
@@ -644,9 +655,16 @@ export default function App() {
   const setApproachAccuracy = (accuracy: 'left' | 'right' | 'short' | 'long' | 'center') => {
     setHoleStats(prev => {
       const current = prev[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
+      const newAccuracy = current.approachAccuracy === accuracy ? null : accuracy;
+
       return {
         ...prev,
-        [currentHole]: { ...current, approachAccuracy: current.approachAccuracy === accuracy ? null : accuracy }
+        [currentHole]: {
+          ...current,
+          approachAccuracy: newAccuracy,
+          // AUTO-SYNC: GIR linked to center accuracy (with conflict checks)
+          gir: newAccuracy === 'center' ? (current.upAndDown || current.sandSave ? false : true) : false
+        }
       };
     });
   };
@@ -656,27 +674,46 @@ export default function App() {
       const current = prev[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
       const newValue = !current[stat];
 
-      // GIR logic: cannot have GIR if Up&Down or Sand Save are true
+      // GIR logic: cannot have GIR if Up&Down, Sand Save are true, or approach accuracy ≠ center
       if (stat === 'gir' && newValue) {
-        // Only allow GIR if both upAndDown and sandSave are false
-        if (current.upAndDown || current.sandSave) {
+        // Only allow GIR if:
+        // 1. Up&Down is false
+        // 2. Sand Save is false
+        // 3. Approach accuracy is 'center'
+        if (current.upAndDown || current.sandSave || current.approachAccuracy !== 'center') {
           return prev; // Don't allow GIR
         }
       }
 
-      // If setting Up&Down to true, disable GIR
-      if (stat === 'upAndDown' && newValue) {
+      // Fairway ↔ Tee Accuracy linking: if setting fairway to true, set tee accuracy to center
+      if (stat === 'fairway' && newValue) {
         return {
           ...prev,
-          [currentHole]: { ...current, [stat]: newValue, gir: false }
+          [currentHole]: { ...current, [stat]: newValue, teeAccuracy: 'center' }
         };
       }
 
-      // If setting Sand Save to true, disable GIR
+      // If setting fairway to false, clear tee accuracy
+      if (stat === 'fairway' && !newValue) {
+        return {
+          ...prev,
+          [currentHole]: { ...current, [stat]: newValue, teeAccuracy: null }
+        };
+      }
+
+      // If setting Up&Down to true: disable GIR and clear approach accuracy
+      if (stat === 'upAndDown' && newValue) {
+        return {
+          ...prev,
+          [currentHole]: { ...current, [stat]: newValue, gir: false, approachAccuracy: null }
+        };
+      }
+
+      // If setting Sand Save to true: also set Up&Down to true, disable GIR, clear approach accuracy
       if (stat === 'sandSave' && newValue) {
         return {
           ...prev,
-          [currentHole]: { ...current, [stat]: newValue, gir: false }
+          [currentHole]: { ...current, [stat]: newValue, upAndDown: true, gir: false, approachAccuracy: null }
         };
       }
 
@@ -966,6 +1003,15 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Current Round Display */}
+              {isRoundActive && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2">
+                  <p className="text-xs font-bold text-emerald-600 uppercase tracking-widest">Current Round</p>
+                  <p className="text-lg font-bold text-stone-800">{courseName}</p>
+                  <p className="text-sm text-stone-600">Hole {currentHole} of 18</p>
+                </div>
+              )}
+
               {/* Start Round Section */}
               <div className="space-y-4">
                 <h3 className="text-lg font-bold text-stone-800 flex items-center gap-2">
@@ -1218,8 +1264,8 @@ export default function App() {
                   </motion.div>
                 )}
 
-                {/* Approach Shot Club - Only for Par 4 and Par 5 */}
-                {remainingDistance !== null && remainingDistance > 0 && currentHoleData.par > 3 && (
+                {/* Approach Shot Club - Always show for Par 4 and Par 5 */}
+                {currentHoleData.par > 3 && (
                   <div className="space-y-1">
                     <label className="text-[9px] font-bold text-stone-400 uppercase tracking-widest pl-1">Approach Shot Club</label>
                     <div className="relative">
