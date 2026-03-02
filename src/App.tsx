@@ -639,15 +639,9 @@ export default function App() {
   const setTeeAccuracy = (accuracy: 'left' | 'center' | 'right') => {
     setHoleStats(prev => {
       const current = prev[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
-      const newAccuracy = current.teeAccuracy === accuracy ? null : accuracy;
-
       return {
         ...prev,
-        [currentHole]: {
-          ...current,
-          teeAccuracy: newAccuracy,
-          fairway: newAccuracy === 'center' ? true : false  // AUTO-SYNC: fairway linked to center accuracy
-        }
+        [currentHole]: { ...current, teeAccuracy: current.teeAccuracy === accuracy ? null : accuracy }
       };
     });
   };
@@ -655,16 +649,9 @@ export default function App() {
   const setApproachAccuracy = (accuracy: 'left' | 'right' | 'short' | 'long' | 'center') => {
     setHoleStats(prev => {
       const current = prev[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
-      const newAccuracy = current.approachAccuracy === accuracy ? null : accuracy;
-
       return {
         ...prev,
-        [currentHole]: {
-          ...current,
-          approachAccuracy: newAccuracy,
-          // AUTO-SYNC: GIR linked to center accuracy (with conflict checks)
-          gir: newAccuracy === 'center' ? (current.upAndDown || current.sandSave ? false : true) : false
-        }
+        [currentHole]: { ...current, approachAccuracy: current.approachAccuracy === accuracy ? null : accuracy }
       };
     });
   };
@@ -674,46 +661,11 @@ export default function App() {
       const current = prev[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
       const newValue = !current[stat];
 
-      // GIR logic: cannot have GIR if Up&Down, Sand Save are true, or approach accuracy ≠ center
-      if (stat === 'gir' && newValue) {
-        // Only allow GIR if:
-        // 1. Up&Down is false
-        // 2. Sand Save is false
-        // 3. Approach accuracy is 'center'
-        if (current.upAndDown || current.sandSave || current.approachAccuracy !== 'center') {
-          return prev; // Don't allow GIR
-        }
-      }
-
-      // Fairway ↔ Tee Accuracy linking: if setting fairway to true, set tee accuracy to center
-      if (stat === 'fairway' && newValue) {
-        return {
-          ...prev,
-          [currentHole]: { ...current, [stat]: newValue, teeAccuracy: 'center' }
-        };
-      }
-
-      // If setting fairway to false, clear tee accuracy
-      if (stat === 'fairway' && !newValue) {
-        return {
-          ...prev,
-          [currentHole]: { ...current, [stat]: newValue, teeAccuracy: null }
-        };
-      }
-
-      // If setting Up&Down to true: disable GIR and clear approach accuracy
-      if (stat === 'upAndDown' && newValue) {
-        return {
-          ...prev,
-          [currentHole]: { ...current, [stat]: newValue, gir: false, approachAccuracy: null }
-        };
-      }
-
-      // If setting Sand Save to true: also set Up&Down to true, disable GIR, clear approach accuracy
+      // Sand Save implies Up&Down (golf rule: sand saves are a type of up&down recovery)
       if (stat === 'sandSave' && newValue) {
         return {
           ...prev,
-          [currentHole]: { ...current, [stat]: newValue, upAndDown: true, gir: false, approachAccuracy: null }
+          [currentHole]: { ...current, [stat]: newValue, upAndDown: true }
         };
       }
 
@@ -1005,11 +957,14 @@ export default function App() {
 
               {/* Current Round Display */}
               {isRoundActive && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2">
+                <button
+                  onClick={() => setView('tracker')}
+                  className="w-full text-left bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2 hover:bg-emerald-100 transition-colors"
+                >
                   <p className="text-xs font-bold text-emerald-600 uppercase tracking-widest">Current Round</p>
                   <p className="text-lg font-bold text-stone-800">{courseName}</p>
                   <p className="text-sm text-stone-600">Hole {currentHole} of 18</p>
-                </div>
+                </button>
               )}
 
               {/* Start Round Section */}
@@ -1084,6 +1039,52 @@ export default function App() {
                       <Plus size={20} />
                     </button>
                   </div>
+                </div>
+
+                {/* Drive Tracking Controls */}
+                <div className="space-y-3">
+                  {!isTracking ? (
+                    <div className="space-y-3">
+                      {lastDriveDistance !== null && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl text-center"
+                        >
+                          <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1">Last Drive</p>
+                          <p className="text-4xl font-black text-emerald-700">
+                            {Math.round(unit === 'yards' ? lastDriveDistance * 1.09361 : lastDriveDistance)}
+                            <span className="text-lg ml-1">{unit}</span>
+                          </p>
+                        </motion.div>
+                      )}
+                      <button
+                        onClick={handleStartDrive}
+                        disabled={!currentPos}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-200 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-600/10 transition-all active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <Target size={20} />
+                        Measure Tee Shot
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      <button
+                        onClick={handleMarkBall}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-600/10 transition-all active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <CheckCircle2 size={20} />
+                        Mark Ball
+                      </button>
+                      <button
+                        onClick={handleReset}
+                        className="w-full bg-white hover:bg-stone-50 text-stone-600 font-semibold py-3 rounded-xl border border-stone-200 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
+                      >
+                        <RotateCcw size={16} />
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Stat Toggles */}
@@ -1288,69 +1289,26 @@ export default function App() {
 
                 {/* Hole Selector */}
                 <div className="bg-white p-3 rounded-2xl border border-stone-100 shadow-sm flex items-center justify-between">
-                  <button 
-                    onClick={() => changeHole(-1)} 
+                  <button
+                    onClick={() => changeHole(-1)}
                     className="w-12 h-12 bg-stone-50 rounded-xl flex items-center justify-center text-stone-400 hover:bg-stone-100 transition-colors"
                   >
                     <ChevronLeft size={28} />
                   </button>
-                  <div className="text-center">
+                  <div className="text-center flex-1">
                     <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest mb-0.5">Hole</p>
                     <p className="text-3xl font-black text-emerald-600">{currentHole}</p>
+                    <p className="text-[10px] text-stone-500 mt-1">
+                      Par {currentHoleData.par} • {Math.round(unit === 'yards' ? getCurrentHoleDistance() * 1.09361 : getCurrentHoleDistance())} {unit}
+                    </p>
                   </div>
-                  <button 
-                    onClick={() => changeHole(1)} 
+                  <button
+                    onClick={() => changeHole(1)}
                     className="w-12 h-12 bg-stone-50 rounded-xl flex items-center justify-center text-stone-400 hover:bg-stone-100 transition-colors"
                   >
                     <ChevronRight size={28} />
                   </button>
                 </div>
-              </div>
-
-              {/* Drive Tracking Controls */}
-              <div className="space-y-3">
-                {!isTracking ? (
-                  <div className="space-y-3">
-                    {lastDriveDistance !== null && (
-                      <motion.div 
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl text-center"
-                      >
-                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1">Last Drive</p>
-                        <p className="text-4xl font-black text-emerald-700">
-                          {Math.round(unit === 'yards' ? lastDriveDistance * 1.09361 : lastDriveDistance)}
-                          <span className="text-lg ml-1">{unit}</span>
-                        </p>
-                      </motion.div>
-                    )}
-                    <button
-                      onClick={handleStartDrive}
-                      disabled={!currentPos}
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-200 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-600/10 transition-all active:scale-95 flex items-center justify-center gap-2"
-                    >
-                      <Target size={20} />
-                      Start Drive
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-3">
-                    <button
-                      onClick={handleMarkBall}
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-600/10 transition-all active:scale-95 flex items-center justify-center gap-2"
-                    >
-                      <CheckCircle2 size={20} />
-                      Mark Ball
-                    </button>
-                    <button
-                      onClick={handleReset}
-                      className="w-full bg-white hover:bg-stone-50 text-stone-600 font-semibold py-3 rounded-xl border border-stone-200 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
-                    >
-                      <RotateCcw size={16} />
-                      Cancel
-                    </button>
-                  </div>
-                )}
               </div>
 
               {/* End Round Button */}
