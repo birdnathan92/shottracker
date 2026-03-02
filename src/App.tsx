@@ -284,6 +284,79 @@ export default function App() {
     loadRoundsFromSupabase();
   }, []);
 
+  // Load drives (history) from Supabase on app startup
+  useEffect(() => {
+    const loadDrivesFromSupabase = async () => {
+      if (!isSupabaseAvailable()) return;
+
+      try {
+        const drivesFromSupabase = await supabaseDb.getDrives();
+        if (drivesFromSupabase && drivesFromSupabase.length > 0) {
+          setHistory(drivesFromSupabase);
+          localStorage.setItem('golf_drive_history', JSON.stringify(drivesFromSupabase));
+        }
+      } catch (error) {
+        console.error('Failed to load drives from Supabase:', error);
+      }
+    };
+
+    loadDrivesFromSupabase();
+  }, []);
+
+  // Load clubs (bag) from Supabase on app startup
+  useEffect(() => {
+    const loadClubsFromSupabase = async () => {
+      if (!isSupabaseAvailable()) return;
+
+      try {
+        const clubsFromSupabase = await supabaseDb.getClubs();
+        if (clubsFromSupabase && clubsFromSupabase.length > 0) {
+          setBag(clubsFromSupabase);
+          localStorage.setItem('golf_bag', JSON.stringify(clubsFromSupabase));
+        }
+      } catch (error) {
+        console.error('Failed to load clubs from Supabase:', error);
+      }
+    };
+
+    loadClubsFromSupabase();
+  }, []);
+
+  // Load hole stats from Supabase on app startup
+  useEffect(() => {
+    const loadHoleStatsFromSupabase = async () => {
+      if (!isSupabaseAvailable()) return;
+
+      try {
+        const holeStatsFromSupabase = await supabaseDb.getHoleStats();
+        if (holeStatsFromSupabase && holeStatsFromSupabase.length > 0) {
+          // Convert array to Record format
+          const statsRecord: Record<number, HoleStats> = {};
+          holeStatsFromSupabase.forEach((stat: any) => {
+            statsRecord[stat.hole_number] = {
+              score: stat.score,
+              putts: stat.putts,
+              fairway: stat.fairway,
+              gir: stat.gir,
+              upAndDown: stat.up_and_down,
+              sandSave: stat.sand_save,
+              teeAccuracy: stat.tee_accuracy,
+              approachAccuracy: stat.approach_accuracy,
+              par: stat.par,
+              distance: stat.distance,
+            };
+          });
+          setHoleStats(statsRecord);
+          localStorage.setItem('golf_hole_stats', JSON.stringify(statsRecord));
+        }
+      } catch (error) {
+        console.error('Failed to load hole stats from Supabase:', error);
+      }
+    };
+
+    loadHoleStatsFromSupabase();
+  }, []);
+
   // Sync courses to Supabase
   useEffect(() => {
     if (!isSupabaseAvailable()) return;
@@ -334,6 +407,91 @@ export default function App() {
     const timer = setTimeout(syncRounds, 1000); // Debounce 1 second
     return () => clearTimeout(timer);
   }, [rounds]);
+
+  // Sync drives to Supabase
+  useEffect(() => {
+    if (!isSupabaseAvailable()) return;
+
+    const syncDrives = async () => {
+      try {
+        for (const drive of history) {
+          await supabaseDb.saveDrive({
+            id: drive.id,
+            start_lat: drive.start.lat,
+            start_lng: drive.start.lng,
+            end_lat: drive.end.lat,
+            end_lng: drive.end.lng,
+            distance: drive.distance,
+            club: drive.club,
+            timestamp: drive.timestamp,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        }
+      } catch (error) {
+        console.error('Failed to sync drives to Supabase:', error);
+      }
+    };
+
+    const timer = setTimeout(syncDrives, 1000); // Debounce 1 second
+    return () => clearTimeout(timer);
+  }, [history]);
+
+  // Sync clubs to Supabase
+  useEffect(() => {
+    if (!isSupabaseAvailable()) return;
+
+    const syncClubs = async () => {
+      try {
+        for (const club of bag) {
+          await supabaseDb.saveClub({
+            id: club.id,
+            name: club.name,
+            avg_distance: club.avgDistance,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        }
+      } catch (error) {
+        console.error('Failed to sync clubs to Supabase:', error);
+      }
+    };
+
+    const timer = setTimeout(syncClubs, 1000); // Debounce 1 second
+    return () => clearTimeout(timer);
+  }, [bag]);
+
+  // Sync hole stats to Supabase
+  useEffect(() => {
+    if (!isSupabaseAvailable()) return;
+
+    const syncHoleStats = async () => {
+      try {
+        for (const [holeNumber, stats] of Object.entries(holeStats)) {
+          await supabaseDb.saveHoleStats({
+            hole_number: parseInt(holeNumber),
+            score: stats.score,
+            putts: stats.putts,
+            fairway: stats.fairway,
+            gir: stats.gir,
+            up_and_down: stats.upAndDown,
+            sand_save: stats.sandSave,
+            tee_accuracy: stats.teeAccuracy,
+            approach_accuracy: stats.approachAccuracy,
+            par: stats.par,
+            distance: stats.distance,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        }
+      } catch (error) {
+        console.error('Failed to sync hole stats to Supabase:', error);
+      }
+    };
+
+    const timer = setTimeout(syncHoleStats, 1000); // Debounce 1 second
+    return () => clearTimeout(timer);
+  }, [holeStats]);
 
   // Geolocation tracking
   useEffect(() => {
