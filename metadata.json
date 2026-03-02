@@ -1,0 +1,7 @@
+{
+  "name": "Golf Drive Tracker",
+  "description": "Track your golf drive distances using GPS geolocation. Mark your starting point and your ball's landing spot to calculate exact yardage.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
