@@ -8,12 +8,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import { supabaseDb } from './supabaseClient';
 import { isSupabaseAvailable } from './useSupabaseSync';
-import { 
-  MapPin, 
-  Pencil, 
-  History, 
-  RotateCcw, 
-  CheckCircle2, 
+import {
+  MapPin,
+  Pencil,
+  History,
+  RotateCcw,
+  CheckCircle2,
   AlertCircle,
   Trash2,
   Settings,
@@ -25,7 +25,9 @@ import {
   X,
   Save,
   Search,
-  Loader2
+  Loader2,
+  Home,
+  BarChart3
 } from 'lucide-react';
 
 // --- Custom Icons ---
@@ -179,7 +181,10 @@ export default function App() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
-  
+  const [isRoundActive, setIsRoundActive] = useState(false);
+  const [selectedRound, setSelectedRound] = useState<Round | null>(null);
+  const [isRoundModalOpen, setIsRoundModalOpen] = useState(false);
+
   // Score Tracking State
   const [currentHole, setCurrentHole] = useState(1);
   const [holeStats, setHoleStats] = useState<Record<number, HoleStats>>({
@@ -245,6 +250,15 @@ export default function App() {
     const savedApproachShots = localStorage.getItem('golf_approach_shots');
     if (savedApproachShots) setApproachShots(JSON.parse(savedApproachShots));
   }, []);
+
+  // Auto-select accuracy buttons when GIR and Fairway are both true
+  useEffect(() => {
+    const currentHoleData = holeStats[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
+    if (currentHoleData.gir && currentHoleData.fairway) {
+      setTeeAccuracy('center');
+      setApproachAccuracy('center');
+    }
+  }, [currentHoleData.gir, currentHoleData.fairway, currentHole, holeStats]);
 
   // Load courses from Supabase on app startup
   useEffect(() => {
@@ -640,9 +654,36 @@ export default function App() {
   const toggleStat = (stat: keyof Omit<HoleStats, 'score' | 'putts' | 'teeAccuracy' | 'approachAccuracy' | 'par'>) => {
     setHoleStats(prev => {
       const current = prev[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
+      const newValue = !current[stat];
+
+      // GIR logic: cannot have GIR if Up&Down or Sand Save are true
+      if (stat === 'gir' && newValue) {
+        // Only allow GIR if both upAndDown and sandSave are false
+        if (current.upAndDown || current.sandSave) {
+          return prev; // Don't allow GIR
+        }
+      }
+
+      // If setting Up&Down to true, disable GIR
+      if (stat === 'upAndDown' && newValue) {
+        return {
+          ...prev,
+          [currentHole]: { ...current, [stat]: newValue, gir: false }
+        };
+      }
+
+      // If setting Sand Save to true, disable GIR
+      if (stat === 'sandSave' && newValue) {
+        return {
+          ...prev,
+          [currentHole]: { ...current, [stat]: newValue, gir: false }
+        };
+      }
+
+      // Normal toggle
       return {
         ...prev,
-        [currentHole]: { ...current, [stat]: !current[stat] }
+        [currentHole]: { ...current, [stat]: newValue }
       };
     });
   };
@@ -717,6 +758,7 @@ export default function App() {
     setHoleStats(newStats);
     setCourseName(course.name);
     setCurrentHole(1);
+    setIsRoundActive(true);
   };
 
   const saveManualCourse = () => {
@@ -763,6 +805,35 @@ export default function App() {
     }
   };
 
+  const deleteRound = async (roundId: string) => {
+    if (confirm('Delete this round?')) {
+      // Delete from Supabase first
+      if (isSupabaseAvailable()) {
+        try {
+          await supabaseDb.deleteRound(roundId);
+        } catch (error) {
+          console.error('Failed to delete round from Supabase:', error);
+        }
+      }
+      // Then delete from local state
+      setRounds(rounds.filter(r => r.id !== roundId));
+      setIsRoundModalOpen(false);
+      setSelectedRound(null);
+    }
+  };
+
+  const updateRound = async (roundId: string, updatedHoleStats: Record<number, HoleStats>) => {
+    // Update local state
+    setRounds(rounds.map(r =>
+      r.id === roundId
+        ? { ...r, holeStats: updatedHoleStats }
+        : r
+    ));
+    // Close modal
+    setIsRoundModalOpen(false);
+    setSelectedRound(null);
+  };
+
   const endRound = () => {
     if (!courseName) return;
     
@@ -786,6 +857,7 @@ export default function App() {
     setCourseName('');
     setCurrentHole(1);
     setRemainingDistance(null);
+    setIsRoundActive(false);
     setView('home');
   };
 
@@ -817,11 +889,11 @@ export default function App() {
           )}
         </div>
         <div className="flex gap-1">
-          <button 
+          <button
             onClick={() => setView('home')}
             className={`p-2 rounded-full transition-colors ${view === 'home' ? 'bg-emerald-100 text-emerald-700' : 'text-stone-500 hover:bg-stone-100'}`}
           >
-            <MapPin size={20} />
+            <Home size={20} />
           </button>
           <button 
             onClick={() => setView('tracker')}
@@ -829,11 +901,11 @@ export default function App() {
           >
             <Pencil size={20} />
           </button>
-          <button 
+          <button
             onClick={() => setView('history')}
             className={`p-2 rounded-full transition-colors ${view === 'history' ? 'bg-emerald-100 text-emerald-700' : 'text-stone-500 hover:bg-stone-100'}`}
           >
-            <History size={20} />
+            <BarChart3 size={20} />
           </button>
           <button 
             onClick={() => setView('settings')}
@@ -898,7 +970,7 @@ export default function App() {
               <div className="space-y-4">
                 <h3 className="text-lg font-bold text-stone-800 flex items-center gap-2">
                   <div className="w-1.5 h-6 bg-emerald-500 rounded-full" />
-                  Start New Round
+                  {isRoundActive ? 'Continue Current Round' : 'Start New Round'}
                 </h3>
                 
                 {courses.length === 0 ? (
@@ -920,7 +992,12 @@ export default function App() {
                           applyCourse(course);
                           setView('tracker');
                         }}
-                        className="w-full flex items-center justify-between p-4 bg-white rounded-2xl border border-stone-100 shadow-sm hover:border-emerald-200 transition-colors text-left"
+                        disabled={isRoundActive}
+                        className={`w-full flex items-center justify-between p-4 bg-white rounded-2xl border border-stone-100 shadow-sm transition-colors text-left ${
+                          isRoundActive
+                            ? 'opacity-50 cursor-not-allowed'
+                            : 'hover:border-emerald-200'
+                        }`}
                       >
                         <div>
                           <p className="font-bold text-stone-800">{course.name}</p>
@@ -1352,7 +1429,14 @@ export default function App() {
                         {rounds.map((round) => {
                           const diff = round.totalScore - round.totalPar;
                           return (
-                            <tr key={round.id}>
+                            <tr
+                              key={round.id}
+                              onClick={() => {
+                                setSelectedRound(round);
+                                setIsRoundModalOpen(true);
+                              }}
+                              className="cursor-pointer hover:bg-emerald-50 transition-colors"
+                            >
                               <td className="px-4 py-3 text-stone-500 text-xs">
                                 {new Date(round.date).toLocaleDateString()}
                               </td>
@@ -1780,6 +1864,128 @@ export default function App() {
                 >
                   <Save size={20} />
                   Save Course
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Round Detail Modal */}
+      <AnimatePresence>
+        {isRoundModalOpen && selectedRound && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsRoundModalOpen(false)}
+              className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm"
+            />
+
+            {/* Modal Content */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+            >
+              {/* Header */}
+              <div className="sticky top-0 z-10 bg-gradient-to-b from-white to-white/50 px-6 py-4 border-b border-stone-100 flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-stone-800">{selectedRound.courseName}</h2>
+                  <p className="text-xs text-stone-400">{new Date(selectedRound.date).toLocaleDateString()} • {selectedRound.totalScore} ({selectedRound.totalScore - selectedRound.totalPar > 0 ? '+' : ''}{selectedRound.totalScore - selectedRound.totalPar})</p>
+                </div>
+                <button
+                  onClick={() => setIsRoundModalOpen(false)}
+                  className="p-2 hover:bg-stone-100 rounded-full transition-colors"
+                >
+                  <X size={20} className="text-stone-400" />
+                </button>
+              </div>
+
+              {/* Scorecard */}
+              <div className="overflow-y-auto flex-1 px-6 py-4">
+                <div className="bg-stone-50 rounded-2xl p-6 space-y-3">
+                  {Array.from({ length: 18 }, (_, i) => {
+                    const holeNum = i + 1;
+                    const stat = selectedRound.holeStats[holeNum];
+                    if (!stat) return null;
+
+                    const diff = stat.score - stat.par;
+                    return (
+                      <div key={holeNum} className="bg-white rounded-xl p-4 border border-stone-100">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-bold text-stone-500">Hole {holeNum}</span>
+                            <span className="text-lg font-bold text-stone-800">Par {stat.par}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-bold text-stone-500">Score</span>
+                            <span className={`text-lg font-bold ${diff <= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                              {stat.score} ({diff > 0 ? '+' : ''}{diff})
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] font-bold">
+                          <div className="flex items-center gap-1">
+                            <span className={`px-2 py-1 rounded-lg ${stat.fairway ? 'bg-emerald-100 text-emerald-700' : 'bg-stone-100 text-stone-400'}`}>
+                              Fairway: {stat.fairway ? '✓' : '✗'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className={`px-2 py-1 rounded-lg ${stat.gir ? 'bg-emerald-100 text-emerald-700' : 'bg-stone-100 text-stone-400'}`}>
+                              GIR: {stat.gir ? '✓' : '✗'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className={`px-2 py-1 rounded-lg ${stat.putts > 0 ? 'bg-blue-100 text-blue-700' : 'bg-stone-100 text-stone-400'}`}>
+                              Putts: {stat.putts}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] font-bold">
+                          <div className={`px-2 py-1 rounded-lg ${stat.upAndDown ? 'bg-purple-100 text-purple-700' : 'bg-stone-100 text-stone-400'}`}>
+                            Up & Down: {stat.upAndDown ? '✓' : '✗'}
+                          </div>
+                          <div className={`px-2 py-1 rounded-lg ${stat.sandSave ? 'bg-amber-100 text-amber-700' : 'bg-stone-100 text-stone-400'}`}>
+                            Sand Save: {stat.sandSave ? '✓' : '✗'}
+                          </div>
+                          <div className={`px-2 py-1 rounded-lg ${stat.teeAccuracy ? 'bg-cyan-100 text-cyan-700' : 'bg-stone-100 text-stone-400'}`}>
+                            Tee: {stat.teeAccuracy || '—'}
+                          </div>
+                        </div>
+
+                        {stat.approachAccuracy && (
+                          <div className="mt-2 text-[10px] font-bold">
+                            <span className="px-2 py-1 rounded-lg bg-cyan-100 text-cyan-700">
+                              Approach: {stat.approachAccuracy}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Footer with Buttons */}
+              <div className="sticky bottom-0 z-10 bg-gradient-to-t from-white to-white/50 px-6 py-4 border-t border-stone-100 flex gap-3">
+                <button
+                  onClick={() => deleteRound(selectedRound.id)}
+                  className="flex-1 px-4 py-3 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={18} />
+                  Delete
+                </button>
+                <button
+                  onClick={() => setIsRoundModalOpen(false)}
+                  className="flex-1 px-4 py-3 bg-stone-100 text-stone-700 font-bold rounded-xl hover:bg-stone-200 transition-colors"
+                >
+                  Close
                 </button>
               </div>
             </motion.div>
