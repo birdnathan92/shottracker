@@ -244,11 +244,13 @@ export default function App() {
   // ---- DATA PERSISTENCE: Consolidated load/save with Supabase as primary ----
   const isInitialLoadComplete = React.useRef(false);
   const [isAppLoading, setIsAppLoading] = useState(true);
+  const [syncStatus, setSyncStatus] = useState<'connected' | 'offline' | 'error' | null>(null);
 
   // Single consolidated Supabase load on mount - SEQUENTIAL to prevent race conditions
   useEffect(() => {
     const loadAllFromSupabase = async () => {
       if (!isSupabaseAvailable()) {
+        setSyncStatus('offline');
         isInitialLoadComplete.current = true;
         setIsAppLoading(false);
         return;
@@ -295,8 +297,12 @@ export default function App() {
           setHistory(drivesFromSupabase);
           localStorage.setItem('golf_drive_history', JSON.stringify(drivesFromSupabase));
         }
-      } catch (error) {
-        console.error('Supabase load failed, using localStorage:', error);
+
+        setSyncStatus('connected');
+      } catch (error: any) {
+        console.error('Supabase load failed:', error);
+        setSyncStatus('error');
+        setError(`Database connection failed: ${error?.message || 'Check your Supabase URL and anon key in .env'}`);
       }
 
       // Mark load complete AFTER all data is loaded
@@ -952,6 +958,15 @@ Requirements:
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-stone-200 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
+          {/* Sync Status Dot */}
+          <div
+            className={`w-2.5 h-2.5 rounded-full ${
+              syncStatus === 'connected' ? 'bg-emerald-500' :
+              syncStatus === 'error' ? 'bg-red-500 animate-pulse' :
+              syncStatus === 'offline' ? 'bg-amber-500' : 'bg-stone-300'
+            }`}
+            title={syncStatus === 'connected' ? 'Synced to cloud' : syncStatus === 'error' ? 'Database error' : syncStatus === 'offline' ? 'Offline mode' : 'Unknown'}
+          />
           {courseName && (
             <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
               {courseName}
@@ -985,6 +1000,17 @@ Requirements:
           </button>
         </div>
       </header>
+
+      {/* Sync Error Banner */}
+      {syncStatus === 'error' && (
+        <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2 text-xs text-red-700">
+          <AlertCircle size={14} className="shrink-0" />
+          <span className="flex-1">Database not connected — data saved locally only. Check Supabase credentials in Settings.</span>
+          <button onClick={() => setSyncStatus(null)} className="text-red-500 hover:text-red-700">
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       <main className="max-w-md mx-auto p-4 pb-20">
         <AnimatePresence mode="wait">
@@ -1798,6 +1824,48 @@ Requirements:
                     </div>
                   )}
                 </div>
+
+                {/* Cloud Sync Status */}
+                <div className={`flex items-center justify-between p-6 rounded-2xl shadow-sm border ${
+                  syncStatus === 'connected' ? 'bg-white border-stone-100' :
+                  syncStatus === 'error' ? 'bg-red-50 border-red-200' :
+                  'bg-amber-50 border-amber-200'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-3 h-3 rounded-full ${
+                      syncStatus === 'connected' ? 'bg-emerald-500' :
+                      syncStatus === 'error' ? 'bg-red-500 animate-pulse' :
+                      'bg-amber-500'
+                    }`} />
+                    <div>
+                      <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider">Cloud Sync</p>
+                      <p className="font-medium">
+                        {syncStatus === 'connected' ? 'Connected to Supabase' :
+                         syncStatus === 'error' ? 'Connection Failed' :
+                         syncStatus === 'offline' ? 'Offline (localStorage only)' : 'Unknown'}
+                      </p>
+                    </div>
+                  </div>
+                  {syncStatus === 'error' && (
+                    <div className="flex items-center gap-2 text-red-600 text-sm">
+                      <AlertCircle size={16} />
+                      <span>Check Keys</span>
+                    </div>
+                  )}
+                </div>
+                {syncStatus === 'error' && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 space-y-2">
+                    <p className="font-bold">⚠️ Your Supabase credentials are invalid</p>
+                    <p>Data is saved locally but NOT syncing to the cloud. To fix this:</p>
+                    <ol className="list-decimal list-inside space-y-1 text-xs">
+                      <li>Go to your <strong>Supabase Dashboard</strong> → Settings → API</li>
+                      <li>Copy your <strong>Project URL</strong> (starts with https://)</li>
+                      <li>Copy your <strong>anon/public key</strong> (starts with eyJ...)</li>
+                      <li>Update your <code className="bg-red-100 px-1 rounded">.env</code> file with the correct values</li>
+                      <li>Restart the dev server</li>
+                    </ol>
+                  </div>
+                )}
 
                 <div className="bg-white rounded-2xl border border-stone-100 p-6 space-y-4">
                   <h3 className="font-semibold text-stone-900">Equipment</h3>
