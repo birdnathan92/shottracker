@@ -2026,44 +2026,47 @@ Requirements:
               </div>
 
               <div className="flex-1 overflow-y-auto p-6">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="text-[10px] font-bold text-stone-400 uppercase tracking-widest border-b border-stone-100">
-                      <th className="pb-4 pl-2">Club Name</th>
-                      <th className="pb-4 pr-2 text-right">Avg Distance ({unit})</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-50">
-                    {bag.map((club, index) => (
-                      <tr key={club.id} className="group hover:bg-stone-50/50 transition-colors">
-                        <td className="py-3 pl-2">
-                          <input 
-                            type="text"
-                            value={club.name}
-                            onChange={(e) => {
-                              const newBag = [...bag];
-                              newBag[index].name = e.target.value;
-                              setBag(newBag);
-                            }}
-                            className="bg-transparent font-bold text-stone-700 outline-none focus:text-emerald-600 w-full"
-                          />
-                        </td>
-                        <td className="py-3 pr-2 text-right">
-                          <input 
-                            type="number"
-                            value={club.avgDistance}
-                            onChange={(e) => {
-                              const newBag = [...bag];
-                              newBag[index].avgDistance = parseInt(e.target.value) || 0;
-                              setBag(newBag);
-                            }}
-                            className="bg-transparent font-mono font-bold text-emerald-600 outline-none text-right w-20"
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="space-y-3">
+                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest ml-1">Select 14 Clubs</p>
+                  {DEFAULT_CLUBS.map((availableClub) => {
+                    const isSelected = bag.some(c => c.id === availableClub.id);
+                    return (
+                      <div
+                        key={availableClub.id}
+                        onClick={() => {
+                          if (isSelected) {
+                            // Remove club
+                            setBag(bag.filter(c => c.id !== availableClub.id));
+                          } else {
+                            // Add club
+                            setBag([...bag, availableClub]);
+                          }
+                        }}
+                        className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                          isSelected
+                            ? 'bg-emerald-50 border-emerald-300 shadow-md'
+                            : 'bg-white border-stone-100 hover:border-stone-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
+                              isSelected
+                                ? 'bg-emerald-500 border-emerald-500'
+                                : 'border-stone-300'
+                            }`}>
+                              {isSelected && <Check size={14} className="text-white" />}
+                            </div>
+                            <span className="font-bold text-stone-700">{availableClub.name}</span>
+                          </div>
+                          <span className="text-sm font-mono text-emerald-600">
+                            {unit === 'yards' ? Math.round(availableClub.avgDistance * 1.09361) : Math.round(availableClub.avgDistance)} {unit === 'yards' ? 'yds' : 'm'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="p-6 bg-stone-50 border-t border-stone-100">
