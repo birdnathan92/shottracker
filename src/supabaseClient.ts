@@ -193,44 +193,52 @@ export const supabaseDb = {
   },
 
   // Clubs operations
-  // Use name as conflict key since app club IDs are not UUIDs
-  async saveClub(club: { name: string; avg_distance: number; updated_at?: string }) {
-    // Only send name and avg_distance - let updated_at be set by default
-    const payload = {
-      name: club.name,
-      avg_distance: club.avg_distance,
-    };
-    console.log('[Supabase] Saving club:', payload);
+  // Since app club IDs are not UUIDs, we use name-based save
+  async saveClub(club: { name: string; avg_distance: number }) {
+    console.log('[Supabase] Saving club:', club);
 
-    // First try: upsert with onConflict by name
-    let { data, error } = await supabase
-      .from('clubs')
-      .upsert(payload, { onConflict: 'name' })
-      .select();
-
-    if (error) {
-      console.error('[Supabase] Club upsert failed:', error);
-      console.error('[Supabase] Error code:', error.code, 'Message:', error.message);
-
-      // If upsert fails, try a simple insert
-      console.log('[Supabase] Trying insert instead...');
-      const { data: insertData, error: insertError } = await supabase
+    try {
+      // First, try to update if it exists
+      const { data: existing, error: checkError } = await supabase
         .from('clubs')
-        .insert([payload])
-        .select();
+        .select('id')
+        .eq('name', club.name)
+        .single();
 
-      if (insertError) {
-        console.error('[Supabase] Insert also failed:', insertError);
-        console.error('[Supabase] Insert error code:', insertError.code, 'Message:', insertError.message);
-        throw insertError;
+      if (existing && existing.id) {
+        // Club exists, update it
+        console.log('[Supabase] Club exists, updating:', existing.id);
+        const { data, error } = await supabase
+          .from('clubs')
+          .update({ avg_distance: club.avg_distance })
+          .eq('id', existing.id)
+          .select();
+
+        if (error) {
+          console.error('[Supabase] Update failed:', error);
+          throw error;
+        }
+        console.log('[Supabase] Club updated successfully:', data);
+        return data?.[0];
+      } else {
+        // Club doesn't exist, insert it
+        console.log('[Supabase] Club is new, inserting...');
+        const { data, error } = await supabase
+          .from('clubs')
+          .insert([{ name: club.name, avg_distance: club.avg_distance }])
+          .select();
+
+        if (error) {
+          console.error('[Supabase] Insert failed:', error);
+          throw error;
+        }
+        console.log('[Supabase] Club inserted successfully:', data);
+        return data?.[0];
       }
-
-      console.log('[Supabase] Club inserted successfully:', insertData);
-      return insertData?.[0];
+    } catch (error) {
+      console.error('[Supabase] saveClub error:', error);
+      throw error;
     }
-
-    console.log('[Supabase] Club saved successfully:', data);
-    return data?.[0];
   },
 
   async getClubs() {
