@@ -287,15 +287,15 @@ export default function App() {
           localStorage.setItem('golf_rounds', JSON.stringify(mapped));
         }
 
-        // Load clubs
+        // Load clubs from Supabase (these are reference data for custom yardages)
+        // But keep the user's selected bag from localStorage
         const clubsFromSupabase = await supabaseDb.getClubs();
-        if (clubsFromSupabase && clubsFromSupabase.length > 0) {
-          const mapped = clubsFromSupabase.map((c: any) => ({
-            id: c.id, name: c.name, avgDistance: c.avg_distance || 0,
-          }));
-          setBag(mapped);
-          localStorage.setItem('golf_bag', JSON.stringify(mapped));
-        }
+        console.log('[App] Loaded', clubsFromSupabase?.length || 0, 'clubs from Supabase');
+
+        // NOTE: We don't override the user's selected bag from localStorage.
+        // The bag is what the user selected + their custom distances.
+        // Supabase clubs are just reference data to prevent duplicate entries.
+        // User's bag is the source of truth - stored in localStorage and synced to Supabase.
 
         // Load drives
         const drivesFromSupabase = await supabaseDb.getDrives();
@@ -323,7 +323,12 @@ export default function App() {
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_drive_history', JSON.stringify(history)); }, [history]);
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_rounds', JSON.stringify(rounds)); }, [rounds]);
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_unit', JSON.stringify(unit)); }, [unit]);
-  useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_bag', JSON.stringify(bag)); }, [bag]);
+  useEffect(() => {
+    if (isInitialLoadComplete.current) {
+      console.log('[App] Saving bag to localStorage:', bag.length, 'clubs');
+      localStorage.setItem('golf_bag', JSON.stringify(bag));
+    }
+  }, [bag]);
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_courses', JSON.stringify(courses)); }, [courses]);
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_hole_stats', JSON.stringify(holeStats)); }, [holeStats]);
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_approach_shots', JSON.stringify(approachShots)); }, [approachShots]);
