@@ -350,10 +350,15 @@ export default function App() {
   }, [courses]);
 
   useEffect(() => {
-    if (!isInitialLoadComplete.current || !isSupabaseAvailable()) return;
+    if (!isInitialLoadComplete.current || !isSupabaseAvailable()) {
+      console.log('[App] Skipping round sync:', { isInitialLoadComplete: isInitialLoadComplete.current, supabaseAvailable: isSupabaseAvailable() });
+      return;
+    }
     const sync = async () => {
+      console.log('[App] Syncing', rounds.length, 'rounds to Supabase');
       try {
         for (const round of rounds) {
+          console.log('[App] Syncing round:', round.id, round.courseName);
           await supabaseDb.saveRound({
             id: round.id, course_name: round.courseName, date: round.date,
             total_score: round.totalScore, total_par: round.totalPar,
@@ -361,7 +366,10 @@ export default function App() {
             created_at: '', updated_at: '',  // Let DB defaults handle timestamps
           });
         }
-      } catch (e) { console.error('Sync rounds failed:', e); }
+        console.log('[App] Round sync complete');
+      } catch (e) {
+        console.error('[App] Sync rounds failed:', e);
+      }
     };
     const t = setTimeout(sync, 1500);
     return () => clearTimeout(t);
