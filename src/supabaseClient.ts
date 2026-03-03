@@ -193,48 +193,32 @@ export const supabaseDb = {
   },
 
   // Clubs operations
-  // Since app club IDs are not UUIDs, we use name-based save
+  // Clubs come from a fixed list with guaranteed names/distances
   async saveClub(club: { name: string; avg_distance: number }) {
     console.log('[Supabase] Saving club:', club);
 
     try {
-      // First, try to update if it exists
-      const { data: existing, error: checkError } = await supabase
+      // Attempt insert - if it fails due to UNIQUE constraint, that's fine (club already exists)
+      const { data, error } = await supabase
         .from('clubs')
-        .select('id')
-        .eq('name', club.name)
-        .single();
+        .insert([{
+          name: club.name,
+          avg_distance: club.avg_distance
+        }])
+        .select();
 
-      if (existing && existing.id) {
-        // Club exists, update it
-        console.log('[Supabase] Club exists, updating:', existing.id);
-        const { data, error } = await supabase
-          .from('clubs')
-          .update({ avg_distance: club.avg_distance })
-          .eq('id', existing.id)
-          .select();
-
-        if (error) {
-          console.error('[Supabase] Update failed:', error);
-          throw error;
+      // Ignore "duplicate key" errors (code 23505)
+      if (error) {
+        if (error.code === '23505') {
+          console.log('[Supabase] Club already exists:', club.name);
+          return { name: club.name, avg_distance: club.avg_distance };
         }
-        console.log('[Supabase] Club updated successfully:', data);
-        return data?.[0];
-      } else {
-        // Club doesn't exist, insert it
-        console.log('[Supabase] Club is new, inserting...');
-        const { data, error } = await supabase
-          .from('clubs')
-          .insert([{ name: club.name, avg_distance: club.avg_distance }])
-          .select();
-
-        if (error) {
-          console.error('[Supabase] Insert failed:', error);
-          throw error;
-        }
-        console.log('[Supabase] Club inserted successfully:', data);
-        return data?.[0];
+        console.error('[Supabase] Insert error:', error);
+        throw error;
       }
+
+      console.log('[Supabase] Club saved:', data);
+      return data?.[0];
     } catch (error) {
       console.error('[Supabase] saveClub error:', error);
       throw error;
