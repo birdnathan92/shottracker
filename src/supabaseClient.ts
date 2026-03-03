@@ -201,14 +201,34 @@ export const supabaseDb = {
       updated_at: club.updated_at || new Date().toISOString(),
     };
     console.log('[Supabase] Saving club:', payload);
-    const { data, error } = await supabase
+
+    // First try: upsert with onConflict
+    let { data, error } = await supabase
       .from('clubs')
       .upsert(payload, { onConflict: 'name' })
       .select();
+
     if (error) {
-      console.error('[Supabase] Club save error:', error);
-      throw error;
+      console.error('[Supabase] Club save error with onConflict:', error);
+      console.error('[Supabase] Error details:', { status: error.code, message: error.message });
+
+      // If onConflict fails, try insert (new club) or update (existing club)
+      console.log('[Supabase] Falling back to insert-only...');
+      const { data: insertData, error: insertError } = await supabase
+        .from('clubs')
+        .insert(payload)
+        .select();
+
+      if (insertError) {
+        console.error('[Supabase] Insert also failed:', insertError);
+        console.error('[Supabase] Insert error details:', { status: insertError.code, message: insertError.message });
+        throw insertError;
+      }
+
+      console.log('[Supabase] Club inserted successfully:', insertData);
+      return insertData?.[0];
     }
+
     console.log('[Supabase] Club saved successfully:', data);
     return data?.[0];
   },
