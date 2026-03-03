@@ -878,13 +878,23 @@ Requirements:
     if (supabaseReady) {
       try {
         console.log('[App] Saving', bag.length, 'clubs to Supabase');
+        let successCount = 0;
+        let skipCount = 0;
+
         for (const club of bag) {
-          await supabaseDb.saveClub({
-            name: club.name,
-            avg_distance: club.avgDistance,
-          });
+          try {
+            const result = await supabaseDb.saveClub({
+              name: club.name,
+              avg_distance: club.avgDistance,
+            });
+            if (result) successCount++;
+          } catch (err) {
+            console.error('[App] Error saving club', club.name, ':', err);
+            skipCount++;
+          }
         }
-        console.log('[App] All clubs saved to Supabase successfully');
+
+        console.log(`[App] Club save complete: ${successCount} inserted, ${skipCount} skipped (already exist)`);
         setError(null); // Clear any previous errors
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);

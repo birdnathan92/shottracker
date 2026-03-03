@@ -216,7 +216,7 @@ export const supabaseDb = {
     console.log('[Supabase] Saving club:', club);
 
     try {
-      // Attempt insert - if it fails due to UNIQUE constraint, that's fine (club already exists)
+      // Try insert first
       const { data, error } = await supabase
         .from('clubs')
         .insert([{
@@ -225,9 +225,11 @@ export const supabaseDb = {
         }])
         .select();
 
-      // Ignore "duplicate key" errors (code 23505)
+      // Handle different error cases
       if (error) {
-        if (error.code === '23505') {
+        // 23505 = unique violation (duplicate key)
+        // We'll treat this as success since the club already exists
+        if (error.code === '23505' || error.code === 'PGRST204') {
           console.log('[Supabase] Club already exists:', club.name);
           return { name: club.name, avg_distance: club.avg_distance };
         }
@@ -235,9 +237,14 @@ export const supabaseDb = {
         throw error;
       }
 
-      console.log('[Supabase] Club saved:', data);
+      console.log('[Supabase] Club inserted:', data);
       return data?.[0];
-    } catch (error) {
+    } catch (error: any) {
+      // Catch UNIQUE constraint violations during insert
+      if (error?.code === '23505' || error?.message?.includes('duplicate')) {
+        console.log('[Supabase] Club already exists (caught):', club.name);
+        return { name: club.name, avg_distance: club.avg_distance };
+      }
       console.error('[Supabase] saveClub error:', error);
       throw error;
     }
