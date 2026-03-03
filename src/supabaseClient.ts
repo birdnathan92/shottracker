@@ -26,7 +26,7 @@ export interface DbCourse {
   name: string;
   location?: string;
   holes: DbCourseHole[];
-  teeBoxes?: { name: string; color: string; holes: DbCourseHole[] }[];
+  teeBoxes?: { name: string; color: string; holes: DbCourseHole[]; slope?: number; courseRating?: number }[];
   created_at: string;
   updated_at: string;
 }

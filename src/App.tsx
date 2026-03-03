@@ -101,6 +101,8 @@ interface TeeBox {
   name: string;
   color: string;
   holes: CourseHole[];
+  slope?: number;
+  courseRating?: number;
 }
 
 interface Course {
@@ -164,7 +166,21 @@ interface Round {
   totalScore: number;
   totalPar: number;
   holeStats: Record<number, HoleStats>;
+  slope?: number;
+  courseRating?: number;
 }
+
+// Tee box colors for UI
+const TEE_BOX_COLORS: Record<string, string> = {
+  black: 'bg-stone-800 text-white',
+  blue: 'bg-blue-500 text-white',
+  white: 'bg-white text-stone-700 border border-stone-300',
+  red: 'bg-red-500 text-white',
+  gold: 'bg-amber-400 text-stone-800',
+  green: 'bg-green-500 text-white',
+};
+
+const TEE_COLOR_OPTIONS = ['black', 'blue', 'white', 'red', 'gold', 'green'];
 
 // Helper: safely parse localStorage
 function loadLocal<T>(key: string, fallback: T): T {
@@ -216,228 +232,164 @@ export default function App() {
   const [selectedApproachClubId, setSelectedApproachClubId] = useState<string>(DEFAULT_CLUBS[0].id);
   const [remainingDistance, setRemainingDistance] = useState<number | null>(null);
   const [teeBoxSelectionCourse, setTeeBoxSelectionCourse] = useState<Course | null>(null);
+  const [activeSlope, setActiveSlope] = useState<number>(0);
+  const [activeCourseRating, setActiveCourseRating] = useState<number>(0);
 
   // Score Tracking State
   const [currentHole, setCurrentHole] = useState(() => loadLocal('golf_current_hole', 1));
 
-  // Track if initial mount is done to avoid overwriting localStorage with defaults
-  const hasMounted = React.useRef(false);
-  useEffect(() => { hasMounted.current = true; }, []);
+  // Editing tee boxes for manual course entry
+  const [editingTeeBoxes, setEditingTeeBoxes] = useState<{ name: string; color: string; slope: number; courseRating: number; distances: number[] }[]>([]);
 
-  // ---- Save to localStorage on every state change (skip initial mount) ----
-  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_drive_history', JSON.stringify(history)); }, [history]);
-  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_rounds', JSON.stringify(rounds)); }, [rounds]);
-  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_unit', JSON.stringify(unit)); }, [unit]);
-  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_bag', JSON.stringify(bag)); }, [bag]);
-  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_courses', JSON.stringify(courses)); }, [courses]);
-  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_hole_stats', JSON.stringify(holeStats)); }, [holeStats]);
-  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_approach_shots', JSON.stringify(approachShots)); }, [approachShots]);
-  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_is_round_active', JSON.stringify(isRoundActive)); }, [isRoundActive]);
-  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_current_hole', JSON.stringify(currentHole)); }, [currentHole]);
-  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_course_name', JSON.stringify(courseName)); }, [courseName]);
+  // ---- DATA PERSISTENCE: Consolidated load/save with Supabase as primary ----
+  const isInitialLoadComplete = React.useRef(false);
+  const [isAppLoading, setIsAppLoading] = useState(true);
 
-
-  // Load courses from Supabase on app startup
+  // Single consolidated Supabase load on mount - SEQUENTIAL to prevent race conditions
   useEffect(() => {
-    const loadCoursesFromSupabase = async () => {
-      if (!isSupabaseAvailable()) return;
+    const loadAllFromSupabase = async () => {
+      if (!isSupabaseAvailable()) {
+        isInitialLoadComplete.current = true;
+        setIsAppLoading(false);
+        return;
+      }
 
       try {
+        // Load courses
         const coursesFromSupabase = await supabaseDb.getCourses();
         if (coursesFromSupabase && coursesFromSupabase.length > 0) {
-          setCourses(coursesFromSupabase);
-          localStorage.setItem('golf_courses', JSON.stringify(coursesFromSupabase));
+          const mapped = coursesFromSupabase.map((c: any) => ({
+            id: c.id, name: c.name, holes: c.holes || [],
+            teeBoxes: c.teeBoxes || undefined,
+          }));
+          setCourses(mapped);
+          localStorage.setItem('golf_courses', JSON.stringify(mapped));
         }
-      } catch (error) {
-        console.error('Failed to load courses from Supabase:', error);
-      }
-    };
 
-    loadCoursesFromSupabase();
-  }, []);
-
-  // Load rounds from Supabase on app startup
-  useEffect(() => {
-    const loadRoundsFromSupabase = async () => {
-      if (!isSupabaseAvailable()) return;
-
-      try {
+        // Load rounds
         const roundsFromSupabase = await supabaseDb.getRounds();
         if (roundsFromSupabase && roundsFromSupabase.length > 0) {
-          // Map Supabase field names to app field names and parse hole stats
-          const mappedRounds = roundsFromSupabase.map((round: any) => ({
-            id: round.id,
-            courseName: round.course_name,
-            date: round.date,
-            totalScore: round.total_score,
-            totalPar: round.total_par,
-            holeStats: round.hole_stats_data ? JSON.parse(round.hole_stats_data) : {}
+          const mapped = roundsFromSupabase.map((r: any) => ({
+            id: r.id, courseName: r.course_name, date: r.date,
+            totalScore: r.total_score, totalPar: r.total_par,
+            holeStats: r.hole_stats_data ? (typeof r.hole_stats_data === 'string' ? JSON.parse(r.hole_stats_data) : r.hole_stats_data) : {},
+            slope: r.slope, courseRating: r.course_rating,
           }));
-          setRounds(mappedRounds);
-          localStorage.setItem('golf_rounds', JSON.stringify(mappedRounds));
+          setRounds(mapped);
+          localStorage.setItem('golf_rounds', JSON.stringify(mapped));
         }
-      } catch (error) {
-        console.error('Failed to load rounds from Supabase:', error);
-      }
-    };
 
-    loadRoundsFromSupabase();
-  }, []);
+        // Load clubs
+        const clubsFromSupabase = await supabaseDb.getClubs();
+        if (clubsFromSupabase && clubsFromSupabase.length > 0) {
+          const mapped = clubsFromSupabase.map((c: any) => ({
+            id: c.id, name: c.name, avgDistance: c.avg_distance || 0,
+          }));
+          setBag(mapped);
+          localStorage.setItem('golf_bag', JSON.stringify(mapped));
+        }
 
-  // Load drives (history) from Supabase on app startup
-  useEffect(() => {
-    const loadDrivesFromSupabase = async () => {
-      if (!isSupabaseAvailable()) return;
-
-      try {
+        // Load drives
         const drivesFromSupabase = await supabaseDb.getDrives();
         if (drivesFromSupabase && drivesFromSupabase.length > 0) {
           setHistory(drivesFromSupabase);
           localStorage.setItem('golf_drive_history', JSON.stringify(drivesFromSupabase));
         }
       } catch (error) {
-        console.error('Failed to load drives from Supabase:', error);
+        console.error('Supabase load failed, using localStorage:', error);
       }
+
+      // Mark load complete AFTER all data is loaded
+      isInitialLoadComplete.current = true;
+      setIsAppLoading(false);
     };
 
-    loadDrivesFromSupabase();
+    loadAllFromSupabase();
   }, []);
 
-  // Load clubs (bag) from Supabase on app startup
+  // ---- Save to localStorage on state change (skip during initial load) ----
+  useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_drive_history', JSON.stringify(history)); }, [history]);
+  useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_rounds', JSON.stringify(rounds)); }, [rounds]);
+  useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_unit', JSON.stringify(unit)); }, [unit]);
+  useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_bag', JSON.stringify(bag)); }, [bag]);
+  useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_courses', JSON.stringify(courses)); }, [courses]);
+  useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_hole_stats', JSON.stringify(holeStats)); }, [holeStats]);
+  useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_approach_shots', JSON.stringify(approachShots)); }, [approachShots]);
+  useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_is_round_active', JSON.stringify(isRoundActive)); }, [isRoundActive]);
+  useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_current_hole', JSON.stringify(currentHole)); }, [currentHole]);
+  useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_course_name', JSON.stringify(courseName)); }, [courseName]);
+
+  // ---- Sync to Supabase (guarded: only after initial load completes) ----
   useEffect(() => {
-    const loadClubsFromSupabase = async () => {
-      if (!isSupabaseAvailable()) return;
-
-      try {
-        const clubsFromSupabase = await supabaseDb.getClubs();
-        if (clubsFromSupabase && clubsFromSupabase.length > 0) {
-          // Map Supabase field names to app field names (avg_distance -> avgDistance)
-          const mappedClubs = clubsFromSupabase.map((club: any) => ({
-            id: club.id,
-            name: club.name,
-            avgDistance: club.avg_distance || 0
-          }));
-          setBag(mappedClubs);
-          localStorage.setItem('golf_bag', JSON.stringify(mappedClubs));
-        }
-      } catch (error) {
-        console.error('Failed to load clubs from Supabase:', error);
-      }
-    };
-
-    loadClubsFromSupabase();
-  }, []);
-
-  // Hole stats are now loaded with rounds from Supabase, fallback to localStorage
-
-  // Sync courses to Supabase
-  useEffect(() => {
-    if (!isSupabaseAvailable()) return;
-
-    const syncCourses = async () => {
+    if (!isInitialLoadComplete.current || !isSupabaseAvailable()) return;
+    const sync = async () => {
       try {
         for (const course of courses) {
           await supabaseDb.saveCourse({
-            id: course.id,
-            name: course.name,
-            location: course.location,
-            holes: course.holes,
-            teeBoxes: course.teeBoxes,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
+            id: course.id, name: course.name, location: undefined,
+            holes: course.holes, teeBoxes: course.teeBoxes,
+            created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
           });
         }
-      } catch (error) {
-        console.error('Failed to sync courses to Supabase:', error);
-      }
+      } catch (e) { console.error('Sync courses failed:', e); }
     };
-
-    const timer = setTimeout(syncCourses, 1000); // Debounce 1 second
-    return () => clearTimeout(timer);
+    const t = setTimeout(sync, 1500);
+    return () => clearTimeout(t);
   }, [courses]);
 
-  // Sync rounds to Supabase
   useEffect(() => {
-    if (!isSupabaseAvailable()) return;
-
-    const syncRounds = async () => {
+    if (!isInitialLoadComplete.current || !isSupabaseAvailable()) return;
+    const sync = async () => {
       try {
         for (const round of rounds) {
           await supabaseDb.saveRound({
-            id: round.id,
-            course_name: round.courseName,
-            date: round.date,
-            total_score: round.totalScore,
-            total_par: round.totalPar,
+            id: round.id, course_name: round.courseName, date: round.date,
+            total_score: round.totalScore, total_par: round.totalPar,
             hole_stats_data: JSON.stringify(round.holeStats),
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
+            created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
           });
         }
-      } catch (error) {
-        console.error('Failed to sync rounds to Supabase:', error);
-      }
+      } catch (e) { console.error('Sync rounds failed:', e); }
     };
-
-    const timer = setTimeout(syncRounds, 1000); // Debounce 1 second
-    return () => clearTimeout(timer);
+    const t = setTimeout(sync, 1500);
+    return () => clearTimeout(t);
   }, [rounds]);
 
-  // Sync drives to Supabase
   useEffect(() => {
-    if (!isSupabaseAvailable()) return;
-
-    const syncDrives = async () => {
+    if (!isInitialLoadComplete.current || !isSupabaseAvailable()) return;
+    const sync = async () => {
       try {
         for (const drive of history) {
           await supabaseDb.saveDrive({
-            id: drive.id,
-            start_lat: drive.start.lat,
-            start_lng: drive.start.lng,
+            id: drive.id, start_lat: drive.start.lat, start_lng: drive.start.lng,
             start_accuracy: drive.start.accuracy || 0,
-            end_lat: drive.end.lat,
-            end_lng: drive.end.lng,
+            end_lat: drive.end.lat, end_lng: drive.end.lng,
             end_accuracy: drive.end.accuracy || 0,
-            distance: drive.distance,
-            club: drive.club,
-            timestamp: drive.timestamp,
-            created_at: new Date().toISOString(),
+            distance: drive.distance, club: drive.club,
+            timestamp: drive.timestamp, created_at: new Date().toISOString(),
           });
         }
-      } catch (error) {
-        console.error('Failed to sync drives to Supabase:', error);
-      }
+      } catch (e) { console.error('Sync drives failed:', e); }
     };
-
-    const timer = setTimeout(syncDrives, 1000); // Debounce 1 second
-    return () => clearTimeout(timer);
+    const t = setTimeout(sync, 1500);
+    return () => clearTimeout(t);
   }, [history]);
 
-  // Sync clubs to Supabase
   useEffect(() => {
-    if (!isSupabaseAvailable()) return;
-
-    const syncClubs = async () => {
+    if (!isInitialLoadComplete.current || !isSupabaseAvailable()) return;
+    const sync = async () => {
       try {
         for (const club of bag) {
           await supabaseDb.saveClub({
-            id: club.id,
-            name: club.name,
-            avg_distance: club.avgDistance,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
+            id: club.id, name: club.name, avg_distance: club.avgDistance,
+            created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
           });
         }
-      } catch (error) {
-        console.error('Failed to sync clubs to Supabase:', error);
-      }
+      } catch (e) { console.error('Sync clubs failed:', e); }
     };
-
-    const timer = setTimeout(syncClubs, 1000); // Debounce 1 second
-    return () => clearTimeout(timer);
+    const t = setTimeout(sync, 1500);
+    return () => clearTimeout(t);
   }, [bag]);
-
-  // Hole stats are now synced with rounds when endRound is called
 
   // Geolocation tracking
   useEffect(() => {
@@ -660,13 +612,20 @@ export default function App() {
   const importCoursePars = async () => {
     if (!courseSearch.trim()) return;
 
+    // Check if API key is set
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey.length < 10) {
+      setError("Gemini API key not configured. Use 'Manual Entry' to add courses, or set GEMINI_API_KEY in your .env file.");
+      return;
+    }
+
     setIsSearchingCourse(true);
     setError(null);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.0-flash",
         contents: `Find hole-by-hole par and tee box yardage information for the golf course: "${courseSearch}".
 
 Return ONLY a JSON object with this exact structure:
@@ -676,11 +635,15 @@ Return ONLY a JSON object with this exact structure:
     {
       "name": "Blue",
       "color": "blue",
+      "slope": 128,
+      "courseRating": 71.2,
       "holes": [{"par": 4, "distance": 380}, ...]
     },
     {
       "name": "White",
       "color": "white",
+      "slope": 124,
+      "courseRating": 69.8,
       "holes": [{"par": 4, "distance": 350}, ...]
     }
   ]
@@ -689,6 +652,7 @@ Return ONLY a JSON object with this exact structure:
 Requirements:
 - Include ALL available tee boxes (Championship/Black, Blue, White, Red, Gold, etc.)
 - Each tee box must have exactly 18 holes with "par" (integer) and "distance" (integer in yards)
+- Include slope rating and course rating for each tee box if available (use 0 if unknown)
 - Par values are the same across all tee boxes, only distances change
 - Order tee boxes from longest to shortest
 - If you cannot find specific yardages for some tee boxes, still include the par values with distance as 0
@@ -699,14 +663,14 @@ Requirements:
         },
       });
 
-      const data = JSON.parse(response.text);
+      const data = JSON.parse(response.text || '{}');
 
       if (data.teeBoxes && Array.isArray(data.teeBoxes) && data.teeBoxes.length > 0) {
-        // Use the first tee box as default holes
-        const defaultTee = data.teeBoxes[0];
         const teeBoxes: TeeBox[] = data.teeBoxes.map((tb: any) => ({
           name: tb.name || 'Default',
           color: tb.color || 'white',
+          slope: tb.slope || 0,
+          courseRating: tb.courseRating || 0,
           holes: (tb.holes || []).map((h: any) => ({ par: h.par || 4, distance: h.distance || 0 }))
         })).filter((tb: TeeBox) => tb.holes.length === 18);
 
@@ -721,10 +685,9 @@ Requirements:
           setCourseSearch('');
           setError(null);
         } else {
-          throw new Error("No valid tee box data found");
+          throw new Error("No valid 18-hole tee box data found");
         }
       } else if (data.holes && Array.isArray(data.holes) && data.holes.length === 18) {
-        // Fallback: old format without tee boxes
         const newCourse: Course = {
           id: crypto.randomUUID(),
           name: data.name || courseSearch,
@@ -735,9 +698,14 @@ Requirements:
       } else {
         throw new Error("Invalid course data received");
       }
-    } catch (err) {
-      console.error(err);
-      setError("Could not find course information. Please try a more specific name.");
+    } catch (err: any) {
+      console.error('Course search error:', err);
+      const msg = err?.message || '';
+      if (msg.includes('API key') || msg.includes('401') || msg.includes('403')) {
+        setError("Invalid Gemini API key. Check your .env file or use Manual Entry.");
+      } else {
+        setError("Could not find course data. Try a more specific name or use Manual Entry.");
+      }
     } finally {
       setIsSearchingCourse(false);
     }
@@ -764,6 +732,8 @@ Requirements:
     setHoleStats(newStats);
     const teeLabel = teeBox ? ` (${teeBox.name})` : '';
     setCourseName(course.name + teeLabel);
+    setActiveSlope(teeBox?.slope || 0);
+    setActiveCourseRating(teeBox?.courseRating || 0);
     setCurrentHole(1);
     setIsRoundActive(true);
     setTeeBoxSelectionCourse(null);
@@ -773,27 +743,69 @@ Requirements:
   const saveManualCourse = () => {
     if (!editingCourse || !editingCourse.name.trim()) return;
 
+    // Build tee boxes from editing state
+    let courseToSave = { ...editingCourse };
+    if (editingTeeBoxes.length > 0) {
+      const teeBoxes: TeeBox[] = editingTeeBoxes.map(tb => ({
+        name: tb.name,
+        color: tb.color,
+        slope: tb.slope || 0,
+        courseRating: tb.courseRating || 0,
+        holes: editingCourse.holes.map((hole, i) => ({
+          par: hole.par,
+          distance: tb.distances[i] || 0,
+        })),
+      }));
+      // Default holes use first tee box distances
+      const defaultHoles = editingCourse.holes.map((hole, i) => ({
+        par: hole.par,
+        distance: editingTeeBoxes[0]?.distances[i] || hole.distance || 0,
+      }));
+      courseToSave = { ...courseToSave, holes: defaultHoles, teeBoxes };
+    }
+
     setCourses(prev => {
-      const exists = prev.find(c => c.id === editingCourse.id);
+      const exists = prev.find(c => c.id === courseToSave.id);
       if (exists) {
-        return prev.map(c => c.id === editingCourse.id ? editingCourse : c);
+        return prev.map(c => c.id === courseToSave.id ? courseToSave : c);
       }
-      return [editingCourse, ...prev];
+      return [courseToSave, ...prev];
     });
 
     setIsCourseModalOpen(false);
     setEditingCourse(null);
+    setEditingTeeBoxes([]);
   };
 
   const startManualCourse = (course?: Course) => {
     if (course) {
-      setEditingCourse(JSON.parse(JSON.stringify(course)));
+      const clone = JSON.parse(JSON.stringify(course));
+      setEditingCourse(clone);
+      // Populate editing tee boxes from existing course
+      if (course.teeBoxes && course.teeBoxes.length > 0) {
+        setEditingTeeBoxes(course.teeBoxes.map(tb => ({
+          name: tb.name,
+          color: tb.color,
+          slope: tb.slope || 0,
+          courseRating: tb.courseRating || 0,
+          distances: tb.holes.map(h => h.distance),
+        })));
+      } else {
+        setEditingTeeBoxes([{
+          name: 'White', color: 'white', slope: 0, courseRating: 0,
+          distances: course.holes.map(h => h.distance),
+        }]);
+      }
     } else {
       setEditingCourse({
         id: crypto.randomUUID(),
         name: '',
         holes: Array(18).fill(null).map(() => ({ par: 4, distance: 0 }))
       });
+      setEditingTeeBoxes([{
+        name: 'White', color: 'white', slope: 0, courseRating: 0,
+        distances: Array(18).fill(0),
+      }]);
     }
     setIsCourseModalOpen(true);
   };
@@ -892,7 +904,9 @@ Requirements:
       date: Date.now(),
       totalScore,
       totalPar,
-      holeStats: { ...holeStats }
+      holeStats: { ...holeStats },
+      slope: activeSlope || undefined,
+      courseRating: activeCourseRating || undefined,
     };
 
     setRounds([newRound, ...rounds]);
@@ -920,6 +934,18 @@ Requirements:
   };
 
   const scoreIndicator = getScoreIndicator(currentHoleData.score, currentHoleData.par);
+
+  // Loading screen while Supabase data loads
+  if (isAppLoading) {
+    return (
+      <div className="min-h-screen bg-stone-50 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Loader2 size={40} className="animate-spin text-emerald-600 mx-auto" />
+          <p className="text-stone-400 font-medium text-sm">Loading your data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 font-sans selection:bg-emerald-100">
@@ -1972,100 +1998,177 @@ Requirements:
         )}
       </AnimatePresence>
 
-      {/* Manual Course Modal */}
+      {/* Manual Course Modal - Multi Tee Box */}
       <AnimatePresence>
         {isCourseModalOpen && editingCourse && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-            <motion.div 
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsCourseModalOpen(false)}
+              onClick={() => { setIsCourseModalOpen(false); setEditingTeeBoxes([]); }}
               className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm"
             />
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-lg bg-white rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+              className="relative w-full max-w-2xl bg-white rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             >
-              <div className="p-6 border-b border-stone-100 flex items-center justify-between bg-white sticky top-0 z-10">
+              <div className="p-4 border-b border-stone-100 flex items-center justify-between bg-white sticky top-0 z-10">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
                     <MapPin size={24} />
                   </div>
-                  <h2 className="text-xl font-bold">Course Details</h2>
+                  <h2 className="text-lg font-bold">Course Details</h2>
                 </div>
-                <button 
-                  onClick={() => setIsCourseModalOpen(false)}
+                <button
+                  onClick={() => { setIsCourseModalOpen(false); setEditingTeeBoxes([]); }}
                   className="p-2 hover:bg-stone-100 rounded-full text-stone-400 transition-colors"
                 >
                   <X size={24} />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                <div className="space-y-2">
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* Course Name */}
+                <div className="space-y-1">
                   <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest ml-1">Course Name</label>
-                  <input 
+                  <input
                     type="text"
                     value={editingCourse.name}
                     onChange={(e) => setEditingCourse({...editingCourse, name: e.target.value})}
                     placeholder="e.g. Augusta National"
-                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 font-bold text-stone-700 outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-2.5 font-bold text-stone-700 outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
                   />
                 </div>
 
-                <div className="space-y-4">
-                  <div className="grid grid-cols-3 gap-4 text-[10px] font-bold text-stone-400 uppercase tracking-widest px-2">
-                    <span>Hole</span>
-                    <span className="text-center">Par</span>
-                    <span className="text-right">Distance</span>
+                {/* Tee Boxes Section */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest ml-1">Tee Boxes</label>
+                    {editingTeeBoxes.length < 5 && (
+                      <button
+                        onClick={() => setEditingTeeBoxes(prev => [...prev, {
+                          name: TEE_COLOR_OPTIONS.find(c => !prev.some(t => t.color === c)) || 'white',
+                          color: TEE_COLOR_OPTIONS.find(c => !prev.some(t => t.color === c)) || 'white',
+                          slope: 0, courseRating: 0,
+                          distances: Array(18).fill(0),
+                        }])}
+                        className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100"
+                      >
+                        <Plus size={12} /> Add Tee
+                      </button>
+                    )}
                   </div>
-                  <div className="space-y-2">
-                    {editingCourse.holes.map((hole, index) => (
-                      <div key={index} className="grid grid-cols-3 gap-4 items-center bg-stone-50 p-2 rounded-xl border border-stone-100">
-                        <span className="pl-2 font-black text-stone-400">#{index + 1}</span>
-                        <div className="flex justify-center">
-                          <select 
-                            value={hole.par}
-                            onChange={(e) => {
-                              const newHoles = [...editingCourse.holes];
-                              newHoles[index].par = parseInt(e.target.value);
-                              setEditingCourse({...editingCourse, holes: newHoles});
-                            }}
-                            className="bg-white border border-stone-200 rounded-lg px-2 py-1 font-bold text-stone-700 outline-none"
-                          >
-                            <option value={3}>3</option>
-                            <option value={4}>4</option>
-                            <option value={5}>5</option>
-                            <option value={6}>6</option>
-                          </select>
-                        </div>
-                        <div className="flex justify-end pr-2">
-                          <input 
-                            type="number"
-                            value={hole.distance || ''}
-                            onChange={(e) => {
-                              const newHoles = [...editingCourse.holes];
-                              newHoles[index].distance = parseInt(e.target.value) || 0;
-                              setEditingCourse({...editingCourse, holes: newHoles});
-                            }}
-                            placeholder="0"
-                            className="w-16 bg-white border border-stone-200 rounded-lg px-2 py-1 font-mono font-bold text-emerald-600 text-right outline-none"
-                          />
-                        </div>
+                  {editingTeeBoxes.map((tb, tbIdx) => (
+                    <div key={tbIdx} className="flex items-center gap-2 bg-stone-50 rounded-xl p-2 border border-stone-100">
+                      <select
+                        value={tb.color}
+                        onChange={(e) => {
+                          const updated = [...editingTeeBoxes];
+                          updated[tbIdx] = { ...updated[tbIdx], color: e.target.value, name: e.target.value.charAt(0).toUpperCase() + e.target.value.slice(1) };
+                          setEditingTeeBoxes(updated);
+                        }}
+                        className="bg-white border border-stone-200 rounded-lg px-2 py-1 text-xs font-bold outline-none w-20"
+                      >
+                        {TEE_COLOR_OPTIONS.map(c => (
+                          <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+                        ))}
+                      </select>
+                      <span className={`w-5 h-5 rounded-full flex-shrink-0 ${TEE_BOX_COLORS[tb.color] || 'bg-stone-200'}`} />
+                      <div className="flex items-center gap-1 flex-1">
+                        <label className="text-[9px] text-stone-400 font-bold">Slope</label>
+                        <input type="number" value={tb.slope || ''} placeholder="0"
+                          onChange={(e) => {
+                            const updated = [...editingTeeBoxes];
+                            updated[tbIdx] = { ...updated[tbIdx], slope: parseFloat(e.target.value) || 0 };
+                            setEditingTeeBoxes(updated);
+                          }}
+                          className="w-14 bg-white border border-stone-200 rounded-lg px-1.5 py-1 text-xs font-mono font-bold text-stone-600 text-center outline-none"
+                        />
+                        <label className="text-[9px] text-stone-400 font-bold">Rating</label>
+                        <input type="number" step="0.1" value={tb.courseRating || ''} placeholder="0"
+                          onChange={(e) => {
+                            const updated = [...editingTeeBoxes];
+                            updated[tbIdx] = { ...updated[tbIdx], courseRating: parseFloat(e.target.value) || 0 };
+                            setEditingTeeBoxes(updated);
+                          }}
+                          className="w-14 bg-white border border-stone-200 rounded-lg px-1.5 py-1 text-xs font-mono font-bold text-stone-600 text-center outline-none"
+                        />
                       </div>
-                    ))}
-                  </div>
+                      {editingTeeBoxes.length > 1 && (
+                        <button onClick={() => setEditingTeeBoxes(prev => prev.filter((_, i) => i !== tbIdx))}
+                          className="p-1 text-stone-300 hover:text-red-500"><X size={14} /></button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Hole Table with Multi-Tee Columns */}
+                <div className="overflow-x-auto -mx-4 px-4">
+                  <table className="w-full text-xs border-collapse min-w-[400px]">
+                    <thead>
+                      <tr className="text-[9px] font-bold text-stone-400 uppercase tracking-widest border-b border-stone-200">
+                        <th className="py-2 text-left pl-2 w-12">Hole</th>
+                        <th className="py-2 text-center w-14">Par</th>
+                        {editingTeeBoxes.map((tb, i) => (
+                          <th key={i} className="py-2 text-center">
+                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-black ${TEE_BOX_COLORS[tb.color] || 'bg-stone-200'}`}>
+                              {tb.name}
+                            </span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-50">
+                      {editingCourse.holes.map((hole, holeIdx) => (
+                        <tr key={holeIdx} className="hover:bg-stone-50/50">
+                          <td className="py-1.5 pl-2 font-black text-stone-400">#{holeIdx + 1}</td>
+                          <td className="py-1.5 text-center">
+                            <select
+                              value={hole.par}
+                              onChange={(e) => {
+                                const newHoles = [...editingCourse.holes];
+                                newHoles[holeIdx] = { ...newHoles[holeIdx], par: parseInt(e.target.value) };
+                                setEditingCourse({...editingCourse, holes: newHoles});
+                              }}
+                              className="bg-white border border-stone-200 rounded px-1 py-0.5 font-bold text-stone-700 outline-none text-xs w-12 text-center"
+                            >
+                              <option value={3}>3</option>
+                              <option value={4}>4</option>
+                              <option value={5}>5</option>
+                            </select>
+                          </td>
+                          {editingTeeBoxes.map((tb, tbIdx) => (
+                            <td key={tbIdx} className="py-1.5 text-center">
+                              <input
+                                type="number"
+                                value={tb.distances[holeIdx] || ''}
+                                onChange={(e) => {
+                                  const updated = [...editingTeeBoxes];
+                                  const newDist = [...updated[tbIdx].distances];
+                                  newDist[holeIdx] = parseInt(e.target.value) || 0;
+                                  updated[tbIdx] = { ...updated[tbIdx], distances: newDist };
+                                  setEditingTeeBoxes(updated);
+                                }}
+                                placeholder="0"
+                                className="w-16 bg-white border border-stone-200 rounded px-1 py-0.5 font-mono font-bold text-emerald-600 text-center outline-none text-xs mx-auto"
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
-              <div className="p-6 bg-stone-50 border-t border-stone-100">
-                <button 
+              <div className="p-4 bg-stone-50 border-t border-stone-100">
+                <button
                   onClick={saveManualCourse}
                   disabled={!editingCourse.name.trim()}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-300 text-white font-bold py-4 rounded-2xl shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-300 text-white font-bold py-3 rounded-2xl shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all active:scale-95"
                 >
                   <Save size={20} />
                   Save Course
