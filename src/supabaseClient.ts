@@ -195,33 +195,33 @@ export const supabaseDb = {
   // Clubs operations
   // Use name as conflict key since app club IDs are not UUIDs
   async saveClub(club: { name: string; avg_distance: number; updated_at?: string }) {
+    // Only send name and avg_distance - let updated_at be set by default
     const payload = {
       name: club.name,
       avg_distance: club.avg_distance,
-      updated_at: club.updated_at || new Date().toISOString(),
     };
     console.log('[Supabase] Saving club:', payload);
 
-    // First try: upsert with onConflict
+    // First try: upsert with onConflict by name
     let { data, error } = await supabase
       .from('clubs')
       .upsert(payload, { onConflict: 'name' })
       .select();
 
     if (error) {
-      console.error('[Supabase] Club save error with onConflict:', error);
-      console.error('[Supabase] Error details:', { status: error.code, message: error.message });
+      console.error('[Supabase] Club upsert failed:', error);
+      console.error('[Supabase] Error code:', error.code, 'Message:', error.message);
 
-      // If onConflict fails, try insert (new club) or update (existing club)
-      console.log('[Supabase] Falling back to insert-only...');
+      // If upsert fails, try a simple insert
+      console.log('[Supabase] Trying insert instead...');
       const { data: insertData, error: insertError } = await supabase
         .from('clubs')
-        .insert(payload)
+        .insert([payload])
         .select();
 
       if (insertError) {
         console.error('[Supabase] Insert also failed:', insertError);
-        console.error('[Supabase] Insert error details:', { status: insertError.code, message: insertError.message });
+        console.error('[Supabase] Insert error code:', insertError.code, 'Message:', insertError.message);
         throw insertError;
       }
 
