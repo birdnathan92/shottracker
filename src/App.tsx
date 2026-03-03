@@ -387,8 +387,8 @@ export default function App() {
       try {
         for (const club of bag) {
           await supabaseDb.saveClub({
-            id: club.id, name: club.name, avg_distance: club.avgDistance,
-            created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+            name: club.name,
+            avg_distance: club.avgDistance,
           });
         }
       } catch (e) { console.error('Sync clubs failed:', e); }
@@ -869,13 +869,11 @@ Requirements:
       try {
         for (const club of bag) {
           await supabaseDb.saveClub({
-            id: club.id,
             name: club.name,
             avg_distance: club.avgDistance,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
           });
         }
+        console.log('Clubs saved to Supabase successfully');
       } catch (error) {
         console.error('Failed to save clubs to Supabase:', error);
       }
