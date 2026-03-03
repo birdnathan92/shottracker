@@ -629,6 +629,47 @@ export default function App() {
     setRemainingDistance(null);
   };
 
+  // Auto-suggest approach shot club based on distance to green
+  const suggestApproachClub = (distanceInMeters: number): string | null => {
+    if (bag.length === 0) return null;
+
+    // Convert distance to same unit as club distances for comparison
+    const distanceYards = distanceInMeters * 1.09361;
+
+    // Find club with avg distance closest to but not exceeding the remaining distance
+    let bestClub: typeof bag[0] | null = null;
+    let smallestDifference = Infinity;
+
+    for (const club of bag) {
+      if (club.avgDistance <= distanceYards) {
+        const difference = distanceYards - club.avgDistance;
+        if (difference < smallestDifference) {
+          smallestDifference = difference;
+          bestClub = club;
+        }
+      }
+    }
+
+    // If no club found that stays within distance, pick the shortest club
+    if (!bestClub) {
+      bestClub = bag.reduce((shortest, current) =>
+        current.avgDistance < shortest.avgDistance ? current : shortest
+      );
+    }
+
+    return bestClub?.id || null;
+  };
+
+  // Auto-select approach club when distance to green appears
+  useEffect(() => {
+    if (remainingDistance && remainingDistance > 0 && isTracking) {
+      const suggestedClubId = suggestApproachClub(remainingDistance);
+      if (suggestedClubId && suggestedClubId !== selectedApproachClubId) {
+        setSelectedApproachClubId(suggestedClubId);
+      }
+    }
+  }, [remainingDistance, isTracking, bag]);
+
   const importCoursePars = async () => {
     if (!courseSearch.trim()) return;
     

@@ -11,10 +11,11 @@ CREATE TABLE IF NOT EXISTS courses (
 -- Create Rounds table
 CREATE TABLE IF NOT EXISTS rounds (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  course_id UUID REFERENCES courses(id) ON DELETE CASCADE,
-  date DATE NOT NULL,
+  course_name TEXT NOT NULL,
+  date BIGINT NOT NULL,
   total_score INTEGER,
-  total_putts INTEGER,
+  total_par INTEGER,
+  hole_stats_data JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -44,6 +45,12 @@ CREATE TABLE IF NOT EXISTS hole_stats (
   putts INTEGER NOT NULL,
   fairway BOOLEAN DEFAULT FALSE,
   gir BOOLEAN DEFAULT FALSE,
+  up_and_down BOOLEAN DEFAULT FALSE,
+  sand_save BOOLEAN DEFAULT FALSE,
+  tee_accuracy TEXT,
+  approach_accuracy TEXT,
+  par INTEGER DEFAULT 4,
+  distance INTEGER DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(round_id, hole_number)
 );
@@ -53,15 +60,17 @@ CREATE TABLE IF NOT EXISTS clubs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL UNIQUE,
   avg_distance DOUBLE PRECISION,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Create indexes for better query performance
-CREATE INDEX IF NOT EXISTS idx_rounds_course_id ON rounds(course_id);
 CREATE INDEX IF NOT EXISTS idx_rounds_date ON rounds(date);
+CREATE INDEX IF NOT EXISTS idx_rounds_course_name ON rounds(course_name);
 CREATE INDEX IF NOT EXISTS idx_drives_round_id ON drives(round_id);
 CREATE INDEX IF NOT EXISTS idx_drives_timestamp ON drives(timestamp);
 CREATE INDEX IF NOT EXISTS idx_hole_stats_round_id ON hole_stats(round_id);
+CREATE INDEX IF NOT EXISTS idx_clubs_name ON clubs(name);
 
 -- Enable Row Level Security (RLS) for security
 ALTER TABLE courses ENABLE ROW LEVEL SECURITY;
