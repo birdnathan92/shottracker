@@ -2026,46 +2026,84 @@ Requirements:
               </div>
 
               <div className="flex-1 overflow-y-auto p-6">
-                <div className="space-y-3">
-                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest ml-1">Select 14 Clubs</p>
-                  {DEFAULT_CLUBS.map((availableClub) => {
-                    const isSelected = bag.some(c => c.id === availableClub.id);
-                    return (
-                      <div
-                        key={availableClub.id}
-                        onClick={() => {
-                          if (isSelected) {
-                            // Remove club
-                            setBag(bag.filter(c => c.id !== availableClub.id));
-                          } else {
-                            // Add club
-                            setBag([...bag, availableClub]);
-                          }
-                        }}
-                        className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                          isSelected
-                            ? 'bg-emerald-50 border-emerald-300 shadow-md'
-                            : 'bg-white border-stone-100 hover:border-stone-200'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
-                              isSelected
-                                ? 'bg-emerald-500 border-emerald-500'
-                                : 'border-stone-300'
-                            }`}>
-                              {isSelected && <Check size={14} className="text-white" />}
-                            </div>
-                            <span className="font-bold text-stone-700">{availableClub.name}</span>
+                <div className="space-y-4">
+                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest ml-1">Your Clubs</p>
+
+                  {bag.length === 0 ? (
+                    <p className="text-center py-8 text-stone-400 text-sm">No clubs selected. Choose clubs below.</p>
+                  ) : (
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="text-[10px] font-bold text-stone-400 uppercase tracking-widest border-b border-stone-100">
+                          <th className="pb-3 pl-2">Club</th>
+                          <th className="pb-3 pr-2 text-right">Max Distance</th>
+                          <th className="pb-3 pr-2 text-center w-8"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-50">
+                        {bag.map((club, idx) => (
+                          <tr key={club.id} className="hover:bg-stone-50/50">
+                            <td className="py-3 pl-2">
+                              <select
+                                value={club.id}
+                                onChange={(e) => {
+                                  const selectedClub = DEFAULT_CLUBS.find(c => c.id === e.target.value);
+                                  if (selectedClub) {
+                                    const newBag = [...bag];
+                                    newBag[idx] = selectedClub;
+                                    setBag(newBag);
+                                  }
+                                }}
+                                className="bg-white border border-stone-200 rounded-lg px-3 py-1.5 font-bold text-stone-700 outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                              >
+                                {DEFAULT_CLUBS.map(c => (
+                                  <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="py-3 pr-2 text-right">
+                              <input
+                                type="number"
+                                value={club.avgDistance}
+                                onChange={(e) => {
+                                  const newBag = [...bag];
+                                  newBag[idx].avgDistance = parseInt(e.target.value) || 0;
+                                  setBag(newBag);
+                                }}
+                                className="bg-white border border-stone-200 rounded-lg px-2 py-1.5 font-mono font-bold text-emerald-600 outline-none focus:ring-2 focus:ring-emerald-500 text-right w-16 text-sm"
+                              />
+                            </td>
+                            <td className="py-3 pr-2 text-center">
+                              <button
+                                onClick={() => setBag(bag.filter((_, i) => i !== idx))}
+                                className="p-1 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                              >
+                                <X size={16} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+
+                  <div className="pt-4 border-t border-stone-100 space-y-2">
+                    <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Add More Clubs</p>
+                    <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                      {DEFAULT_CLUBS.filter(c => !bag.some(b => b.id === c.id)).map(availableClub => (
+                        <button
+                          key={availableClub.id}
+                          onClick={() => setBag([...bag, { ...availableClub }])}
+                          className="p-2 text-left rounded-lg border border-stone-200 hover:border-emerald-300 hover:bg-emerald-50 transition-all text-sm font-medium text-stone-700"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span>{availableClub.name}</span>
+                            <Plus size={14} />
                           </div>
-                          <span className="text-sm font-mono text-emerald-600">
-                            {unit === 'yards' ? Math.round(availableClub.avgDistance * 1.09361) : Math.round(availableClub.avgDistance)} {unit === 'yards' ? 'yds' : 'm'}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 
