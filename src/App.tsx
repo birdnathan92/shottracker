@@ -23,6 +23,7 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Check,
   Save,
   Search,
   Loader2,
@@ -1027,294 +1028,331 @@ export default function App() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="space-y-4"
+              className="space-y-2"
             >
-              {/* Score Tracker Section */}
-              <section className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 bg-stone-50 p-1.5 rounded-xl border border-stone-100 w-full justify-between">
-                    <button onClick={() => updateScore(-1)} className="w-10 h-10 bg-white shadow-sm rounded-lg flex items-center justify-center text-stone-600 active:scale-90 transition-transform">
-                      <Minus size={20} />
-                    </button>
-                    <div className="text-center">
-                      <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">Score</p>
-                      <p className="text-2xl font-black">{currentHoleData.score}</p>
-                      <p className={`text-[8px] font-bold uppercase tracking-tighter ${scoreIndicator.color}`}>{scoreIndicator.label}</p>
-                    </div>
-                    <button onClick={() => updateScore(1)} className="w-10 h-10 bg-white shadow-sm rounded-lg flex items-center justify-center text-stone-600 active:scale-90 transition-transform">
-                      <Plus size={20} />
-                    </button>
+              {/* Hole Header - Par & Distance at top */}
+              <div className="text-center pb-1">
+                <div className="flex items-center justify-center gap-3">
+                  <span className="text-4xl font-black text-stone-800">#{currentHole}</span>
+                  <div className="text-right">
+                    <p className="text-xs font-bold text-stone-500 uppercase">Par {currentHoleData.par}</p>
+                    <p className="text-xs font-bold text-stone-400">{Math.round(unit === 'yards' ? getCurrentHoleDistance() * 1.09361 : getCurrentHoleDistance())} {unit.toUpperCase()}</p>
                   </div>
                 </div>
+              </div>
 
-                {/* Drive Tracking Controls */}
-                <div className="space-y-3">
-                  {!isTracking ? (
-                    <div className="space-y-3">
-                      {lastDriveDistance !== null && (
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.9 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl text-center"
-                        >
-                          <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1">Last Drive</p>
-                          <p className="text-4xl font-black text-emerald-700">
-                            {Math.round(unit === 'yards' ? lastDriveDistance * 1.09361 : lastDriveDistance)}
-                            <span className="text-lg ml-1">{unit}</span>
-                          </p>
-                        </motion.div>
-                      )}
-                      <button
-                        onClick={handleStartDrive}
-                        disabled={!currentPos}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-200 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-600/10 transition-all active:scale-95 flex items-center justify-center gap-2"
-                      >
-                        <Target size={20} />
-                        Measure Tee Shot
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-3">
-                      <button
-                        onClick={handleMarkBall}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-600/10 transition-all active:scale-95 flex items-center justify-center gap-2"
-                      >
-                        <CheckCircle2 size={20} />
-                        Mark Ball
-                      </button>
-                      <button
-                        onClick={handleReset}
-                        className="w-full bg-white hover:bg-stone-50 text-stone-600 font-semibold py-3 rounded-xl border border-stone-200 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
-                      >
-                        <RotateCcw size={16} />
-                        Cancel
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Stat Toggles */}
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { id: 'fairway', label: 'Fairway' },
-                    { id: 'gir', label: 'GIR' },
-                    { id: 'upAndDown', label: 'Up & Down' },
-                    { id: 'sandSave', label: 'Sand Save' }
-                  ].map((stat) => (
-                    <button
-                      key={stat.id}
-                      onClick={() => toggleStat(stat.id as any)}
-                      className={`py-4 rounded-xl font-bold text-sm transition-all border-2 ${
-                        currentHoleData[stat.id as keyof Omit<HoleStats, 'score' | 'putts' | 'teeAccuracy'>]
-                          ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/10'
-                          : 'bg-white border-stone-100 text-stone-400'
-                      }`}
-                    >
-                      {stat.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Putts Counter */}
-                <div className="flex items-center justify-center gap-4 py-2">
-                  <div className="flex items-center gap-4 bg-stone-50 p-3 rounded-xl border border-stone-100">
-                    <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest pl-2">Putts</p>
-                    <button onClick={() => updatePutts(-1)} className="w-12 h-12 bg-white shadow-sm rounded-lg flex items-center justify-center text-stone-600 hover:bg-stone-100 active:scale-90 transition-transform">
-                      <Minus size={24} />
+              {/* Scorecard */}
+              <div className="bg-white rounded-2xl shadow-sm border border-stone-100 divide-y divide-stone-50">
+                {/* Total Strokes Row */}
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="font-bold text-stone-700 text-sm">Total Strokes</span>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => updateScore(-1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
+                      <Minus size={16} />
                     </button>
                     <div className="w-8 text-center">
-                      <p className="text-2xl font-black text-emerald-600">{currentHoleData.putts}</p>
+                      <p className="text-xl font-black text-stone-800">{currentHoleData.score}</p>
                     </div>
-                    <button onClick={() => updatePutts(1)} className="w-12 h-12 bg-white shadow-sm rounded-lg flex items-center justify-center text-stone-600 hover:bg-stone-100 active:scale-90 transition-transform">
-                      <Plus size={24} />
+                    <button onClick={() => updateScore(1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
+                      <Plus size={16} />
+                    </button>
+                    <p className={`text-[9px] font-bold uppercase w-14 text-right ${scoreIndicator.color}`}>{scoreIndicator.label}</p>
+                  </div>
+                </div>
+
+                {/* Putts Row */}
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="font-bold text-stone-700 text-sm">Putts</span>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => updatePutts(-1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
+                      <Minus size={16} />
+                    </button>
+                    <div className="w-8 text-center">
+                      <p className="text-xl font-black text-stone-800">{currentHoleData.putts}</p>
+                    </div>
+                    <button onClick={() => updatePutts(1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
+                      <Plus size={16} />
+                    </button>
+                    <div className="w-14" />
+                  </div>
+                </div>
+
+                {/* Club Selection Row */}
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="font-bold text-stone-700 text-sm">Tee Club</span>
+                  <div className="relative">
+                    <select
+                      value={selectedClubId}
+                      onChange={(e) => setSelectedClubId(e.target.value)}
+                      className="bg-stone-50 border border-stone-100 rounded-lg px-3 py-1.5 font-bold text-stone-600 appearance-none pr-7 outline-none text-sm"
+                    >
+                      <option disabled value="">Select</option>
+                      {bag.map(club => (
+                        <option key={club.id} value={club.id}>{club.name}</option>
+                      ))}
+                    </select>
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-stone-400">
+                      <ChevronRight size={14} className="rotate-90" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Approach Club Row - Par 4 & 5 only */}
+                {currentHoleData.par > 3 && (
+                  <div className="flex items-center justify-between px-4 py-2.5">
+                    <span className="font-bold text-stone-700 text-sm">Approach Club</span>
+                    <div className="relative">
+                      <select
+                        value={selectedApproachClubId}
+                        onChange={(e) => setSelectedApproachClubId(e.target.value)}
+                        className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-1.5 font-bold text-blue-600 appearance-none pr-7 outline-none text-sm"
+                      >
+                        <option disabled value="">Select</option>
+                        {bag.map(club => (
+                          <option key={club.id} value={club.id}>{club.name}</option>
+                        ))}
+                      </select>
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-blue-400">
+                        <ChevronRight size={14} className="rotate-90" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Fairway Row - Check/X style */}
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="font-bold text-stone-700 text-sm">Fairway</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => { if (!currentHoleData.fairway) toggleStat('fairway' as any); }}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                        currentHoleData.fairway
+                          ? 'bg-emerald-500 border-emerald-500 text-white'
+                          : 'bg-white border-stone-200 text-stone-300 hover:border-emerald-300'
+                      }`}
+                    >
+                      <Check size={20} strokeWidth={3} />
+                    </button>
+                    <button
+                      onClick={() => { if (currentHoleData.fairway) toggleStat('fairway' as any); }}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                        !currentHoleData.fairway
+                          ? 'bg-stone-400 border-stone-400 text-white'
+                          : 'bg-white border-stone-200 text-stone-300 hover:border-stone-400'
+                      }`}
+                    >
+                      <X size={20} strokeWidth={3} />
                     </button>
                   </div>
                 </div>
 
+                {/* GIR Row - Check/X style */}
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="font-bold text-stone-700 text-sm">GIR</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => { if (!currentHoleData.gir) toggleStat('gir' as any); }}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                        currentHoleData.gir
+                          ? 'bg-emerald-500 border-emerald-500 text-white'
+                          : 'bg-white border-stone-200 text-stone-300 hover:border-emerald-300'
+                      }`}
+                    >
+                      <Check size={20} strokeWidth={3} />
+                    </button>
+                    <button
+                      onClick={() => { if (currentHoleData.gir) toggleStat('gir' as any); }}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                        !currentHoleData.gir
+                          ? 'bg-stone-400 border-stone-400 text-white'
+                          : 'bg-white border-stone-200 text-stone-300 hover:border-stone-400'
+                      }`}
+                    >
+                      <X size={20} strokeWidth={3} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sand Save Row - Check/X style */}
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="font-bold text-stone-700 text-sm">Sand Save</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => { if (!currentHoleData.sandSave) toggleStat('sandSave' as any); }}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                        currentHoleData.sandSave
+                          ? 'bg-emerald-500 border-emerald-500 text-white'
+                          : 'bg-white border-stone-200 text-stone-300 hover:border-emerald-300'
+                      }`}
+                    >
+                      <Check size={20} strokeWidth={3} />
+                    </button>
+                    <button
+                      onClick={() => { if (currentHoleData.sandSave) toggleStat('sandSave' as any); }}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                        !currentHoleData.sandSave
+                          ? 'bg-stone-400 border-stone-400 text-white'
+                          : 'bg-white border-stone-200 text-stone-300 hover:border-stone-400'
+                      }`}
+                    >
+                      <X size={20} strokeWidth={3} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Up & Down Row - Check/X style */}
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="font-bold text-stone-700 text-sm">Up & Down</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => { if (!currentHoleData.upAndDown) toggleStat('upAndDown' as any); }}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                        currentHoleData.upAndDown
+                          ? 'bg-emerald-500 border-emerald-500 text-white'
+                          : 'bg-white border-stone-200 text-stone-300 hover:border-emerald-300'
+                      }`}
+                    >
+                      <Check size={20} strokeWidth={3} />
+                    </button>
+                    <button
+                      onClick={() => { if (currentHoleData.upAndDown) toggleStat('upAndDown' as any); }}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                        !currentHoleData.upAndDown
+                          ? 'bg-stone-400 border-stone-400 text-white'
+                          : 'bg-white border-stone-200 text-stone-300 hover:border-stone-400'
+                      }`}
+                    >
+                      <X size={20} strokeWidth={3} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Accuracy Buttons - Compact */}
+              <div className="bg-white rounded-2xl shadow-sm border border-stone-100 p-3 space-y-3">
                 {/* Tee Shot Accuracy */}
                 {currentHoleData.par > 3 && (
-                  <div className="space-y-3">
-                    <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest text-center">Tee Shot Accuracy</p>
-                    <div className="flex justify-center gap-4">
-                      <button
-                        onClick={() => setTeeAccuracy('left')}
-                        className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border-2 ${
-                          currentHoleData.teeAccuracy === 'left'
-                            ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                            : 'bg-white border-stone-100 text-stone-400 hover:border-emerald-200'
-                        }`}
-                      >
-                        <ChevronLeft size={26} />
-                      </button>
-                      <button
-                        onClick={() => setTeeAccuracy('center')}
-                        className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border-2 ${
-                          currentHoleData.teeAccuracy === 'center'
-                            ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                            : 'bg-white border-stone-100 text-stone-400 hover:border-emerald-200'
-                        }`}
-                      >
-                        <div className="relative flex items-center justify-center">
-                          <div className="w-6 h-6 border-2 border-current rounded-full" />
-                          <div className="absolute w-2 h-2 bg-current rounded-full" />
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => setTeeAccuracy('right')}
-                        className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border-2 ${
-                          currentHoleData.teeAccuracy === 'right'
-                            ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                            : 'bg-white border-stone-100 text-stone-400 hover:border-emerald-200'
-                        }`}
-                      >
-                        <ChevronRight size={26} />
-                      </button>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">Tee Accuracy</p>
+                    <div className="flex gap-2">
+                      {(['left', 'center', 'right'] as const).map(dir => (
+                        <button
+                          key={dir}
+                          onClick={() => setTeeAccuracy(dir)}
+                          className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                            currentHoleData.teeAccuracy === dir
+                              ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
+                              : 'bg-white border-stone-100 text-stone-400 hover:border-emerald-200'
+                          }`}
+                        >
+                          {dir === 'left' && <ChevronLeft size={20} />}
+                          {dir === 'center' && <div className="relative flex items-center justify-center"><div className="w-4 h-4 border-2 border-current rounded-full" /><div className="absolute w-1.5 h-1.5 bg-current rounded-full" /></div>}
+                          {dir === 'right' && <ChevronRight size={20} />}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}
 
                 {/* Approach Accuracy */}
-                <div className="space-y-3">
-                  <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest text-center">Approach Accuracy</p>
-                  <div className="flex justify-center gap-3">
-                    <button
-                      onClick={() => setApproachAccuracy('left')}
-                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border-2 ${
-                        currentHoleData.approachAccuracy === 'left'
-                          ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                          : 'bg-white border-stone-100 text-stone-400 hover:border-emerald-200'
-                      }`}
-                    >
-                      <ChevronLeft size={24} />
-                    </button>
-                    <button
-                      onClick={() => setApproachAccuracy('long')}
-                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border-2 ${
-                        currentHoleData.approachAccuracy === 'long'
-                          ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                          : 'bg-white border-stone-100 text-stone-400 hover:border-emerald-200'
-                      }`}
-                    >
-                      <div className="rotate-90"><ChevronLeft size={24} /></div>
-                    </button>
-                    <button
-                      onClick={() => setApproachAccuracy('center')}
-                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border-2 ${
-                        currentHoleData.approachAccuracy === 'center'
-                          ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                          : 'bg-white border-stone-100 text-stone-400 hover:border-emerald-200'
-                      }`}
-                    >
-                      <div className="relative flex items-center justify-center">
-                        <div className="w-6 h-6 border-2 border-current rounded-full" />
-                        <div className="absolute w-2 h-2 bg-current rounded-full" />
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => setApproachAccuracy('short')}
-                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border-2 ${
-                        currentHoleData.approachAccuracy === 'short'
-                          ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                          : 'bg-white border-stone-100 text-stone-400 hover:border-emerald-200'
-                      }`}
-                    >
-                      <div className="-rotate-90"><ChevronLeft size={24} /></div>
-                    </button>
-                    <button
-                      onClick={() => setApproachAccuracy('right')}
-                      className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border-2 ${
-                        currentHoleData.approachAccuracy === 'right'
-                          ? 'bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-600/20'
-                          : 'bg-white border-stone-100 text-stone-400 hover:border-emerald-200'
-                      }`}
-                    >
-                      <ChevronRight size={24} />
-                    </button>
-                  </div>
-                </div>
-              </section>
-
-              {/* Club Selection Dropdowns */}
-              <div className="space-y-3">
-                {/* Tee Shot Club */}
-                <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-stone-400 uppercase tracking-widest pl-1">Tee Shot Club</label>
-                  <div className="relative">
-                    <select
-                      value={selectedClubId}
-                      onChange={(e) => setSelectedClubId(e.target.value)}
-                      className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 font-bold text-stone-700 appearance-none shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-                    >
-                      <option disabled value="">Select Club</option>
-                      {bag.map(club => (
-                        <option key={club.id} value={club.id}>{club.name}</option>
-                      ))}
-                    </select>
-                    <div className="absolute right-4 bottom-3 pointer-events-none text-stone-400">
-                      <ChevronRight size={18} className="rotate-90" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Remaining Distance Display */}
-                {remainingDistance !== null && remainingDistance > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-blue-50 border border-blue-100 p-3 rounded-xl text-center"
-                  >
-                    <p className="text-[9px] font-bold text-blue-600 uppercase tracking-widest">Distance to Green</p>
-                    <p className="text-2xl font-black text-blue-700">
-                      {Math.round(unit === 'yards' ? remainingDistance * 1.09361 : remainingDistance)}
-                      <span className="text-sm ml-1">{unit}</span>
-                    </p>
-                  </motion.div>
-                )}
-
-                {/* Approach Shot Club - Always show for Par 4 and Par 5 */}
-                {currentHoleData.par > 3 && (
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-bold text-stone-400 uppercase tracking-widest pl-1">Approach Shot Club</label>
-                    <div className="relative">
-                      <select
-                        value={selectedApproachClubId}
-                        onChange={(e) => setSelectedApproachClubId(e.target.value)}
-                        className="w-full bg-white border border-blue-200 rounded-xl px-4 py-3 font-bold text-blue-700 appearance-none shadow-sm focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                <div className="flex items-center justify-between">
+                  <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">Approach</p>
+                  <div className="flex gap-2">
+                    {(['left', 'long', 'center', 'short', 'right'] as const).map(dir => (
+                      <button
+                        key={dir}
+                        onClick={() => setApproachAccuracy(dir)}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                          currentHoleData.approachAccuracy === dir
+                            ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
+                            : 'bg-white border-stone-100 text-stone-400 hover:border-emerald-200'
+                        }`}
                       >
-                        <option disabled value="">Select Club</option>
-                        {bag.map(club => (
-                          <option key={club.id} value={club.id}>{club.name}</option>
-                        ))}
-                      </select>
-                      <div className="absolute right-4 bottom-3 pointer-events-none text-blue-400">
-                        <ChevronRight size={18} className="rotate-90" />
-                      </div>
-                    </div>
+                        {dir === 'left' && <ChevronLeft size={18} />}
+                        {dir === 'long' && <div className="rotate-90"><ChevronLeft size={18} /></div>}
+                        {dir === 'center' && <div className="relative flex items-center justify-center"><div className="w-4 h-4 border-2 border-current rounded-full" /><div className="absolute w-1.5 h-1.5 bg-current rounded-full" /></div>}
+                        {dir === 'short' && <div className="-rotate-90"><ChevronLeft size={18} /></div>}
+                        {dir === 'right' && <ChevronRight size={18} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Drive Tracking - Compact */}
+              <div className="space-y-2">
+                {!isTracking ? (
+                  <>
+                    {lastDriveDistance !== null && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="bg-emerald-50 border border-emerald-100 p-2 rounded-xl text-center"
+                      >
+                        <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest">Last Drive</p>
+                        <p className="text-2xl font-black text-emerald-700">
+                          {Math.round(unit === 'yards' ? lastDriveDistance * 1.09361 : lastDriveDistance)}
+                          <span className="text-sm ml-1">{unit}</span>
+                        </p>
+                      </motion.div>
+                    )}
+                    {remainingDistance !== null && remainingDistance > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-blue-50 border border-blue-100 p-2 rounded-xl text-center"
+                      >
+                        <p className="text-[9px] font-bold text-blue-600 uppercase tracking-widest">Distance to Green</p>
+                        <p className="text-2xl font-black text-blue-700">
+                          {Math.round(unit === 'yards' ? remainingDistance * 1.09361 : remainingDistance)}
+                          <span className="text-sm ml-1">{unit}</span>
+                        </p>
+                      </motion.div>
+                    )}
+                    <button
+                      onClick={handleStartDrive}
+                      disabled={!currentPos}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-200 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/10 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
+                    >
+                      <Target size={18} />
+                      Measure Tee Shot
+                    </button>
+                  </>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleMarkBall}
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/10 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
+                    >
+                      <CheckCircle2 size={18} />
+                      Mark Ball
+                    </button>
+                    <button
+                      onClick={handleReset}
+                      className="bg-white hover:bg-stone-50 text-stone-500 font-semibold py-3 px-4 rounded-xl border border-stone-200 transition-all active:scale-95 text-sm"
+                    >
+                      <RotateCcw size={16} />
+                    </button>
                   </div>
                 )}
+              </div>
 
-                {/* Hole Selector */}
-                <div className="bg-white p-3 rounded-2xl border border-stone-100 shadow-sm flex items-center justify-between">
-                  <button
-                    onClick={() => changeHole(-1)}
-                    className="w-12 h-12 bg-stone-50 rounded-xl flex items-center justify-center text-stone-400 hover:bg-stone-100 transition-colors"
-                  >
-                    <ChevronLeft size={28} />
-                  </button>
-                  <div className="text-center flex-1">
-                    <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest mb-0.5">Hole</p>
-                    <p className="text-3xl font-black text-emerald-600">{currentHole}</p>
-                    <p className="text-[10px] text-stone-500 mt-1">
-                      Par {currentHoleData.par} • {Math.round(unit === 'yards' ? getCurrentHoleDistance() * 1.09361 : getCurrentHoleDistance())} {unit}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => changeHole(1)}
-                    className="w-12 h-12 bg-stone-50 rounded-xl flex items-center justify-center text-stone-400 hover:bg-stone-100 transition-colors"
-                  >
-                    <ChevronRight size={28} />
-                  </button>
-                </div>
+              {/* Hole Navigation - Bottom */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => changeHole(-1)}
+                  className="flex-1 flex items-center justify-center gap-1 py-3 bg-rose-50 text-rose-400 font-bold rounded-xl border border-rose-100 active:scale-95 transition-all text-sm"
+                >
+                  <ChevronLeft size={18} />
+                  #{Math.max(1, currentHole - 1)}
+                </button>
+                <button
+                  onClick={() => changeHole(1)}
+                  className="flex-1 flex items-center justify-center gap-1 py-3 bg-rose-50 text-rose-400 font-bold rounded-xl border border-rose-100 active:scale-95 transition-all text-sm"
+                >
+                  #{Math.min(18, currentHole + 1)}
+                  <ChevronRight size={18} />
+                </button>
               </div>
 
               {/* End Round Button */}
@@ -1325,9 +1363,9 @@ export default function App() {
                       endRound();
                     }
                   }}
-                  className="w-full py-4 bg-stone-800 text-white font-bold rounded-xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
+                  className="w-full py-3 bg-stone-800 text-white font-bold rounded-xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 text-sm"
                 >
-                  <CheckCircle2 size={20} />
+                  <CheckCircle2 size={18} />
                   End Round & Post Score
                 </button>
               )}
