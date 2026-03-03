@@ -76,11 +76,29 @@ export interface DbClub {
 export const supabaseDb = {
   // Rounds operations
   async saveRound(round: DbRound) {
+    console.log('[Supabase] Saving round:', { id: round.id, course_name: round.course_name, date: round.date, total_score: round.total_score });
+
+    // Don't send created_at/updated_at - let DB defaults handle them
+    const payload = {
+      id: round.id,
+      course_name: round.course_name,
+      date: round.date,  // BIGINT milliseconds
+      total_score: round.total_score,
+      total_par: round.total_par,
+      hole_stats_data: round.hole_stats_data,
+    };
+
     const { data, error } = await supabase
       .from('rounds')
-      .upsert(round, { onConflict: 'id' })
+      .upsert(payload, { onConflict: 'id' })
       .select();
-    if (error) throw error;
+
+    if (error) {
+      console.error('[Supabase] Round save error:', error);
+      throw error;
+    }
+
+    console.log('[Supabase] Round saved:', data);
     return data?.[0];
   },
 

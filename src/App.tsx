@@ -352,7 +352,7 @@ export default function App() {
             id: round.id, course_name: round.courseName, date: round.date,
             total_score: round.totalScore, total_par: round.totalPar,
             hole_stats_data: JSON.stringify(round.holeStats),
-            created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+            created_at: '', updated_at: '',  // Let DB defaults handle timestamps
           });
         }
       } catch (e) { console.error('Sync rounds failed:', e); }
