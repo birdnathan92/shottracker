@@ -382,8 +382,12 @@ export default function App() {
   }, [history]);
 
   useEffect(() => {
-    if (!isInitialLoadComplete.current || !isSupabaseAvailable()) return;
+    if (!isInitialLoadComplete.current || !isSupabaseAvailable()) {
+      console.log('[App] Skipping club sync:', { isInitialLoadComplete: isInitialLoadComplete.current, supabaseAvailable: isSupabaseAvailable() });
+      return;
+    }
     const sync = async () => {
+      console.log('[App] Syncing', bag.length, 'clubs to Supabase');
       try {
         for (const club of bag) {
           await supabaseDb.saveClub({
@@ -391,7 +395,10 @@ export default function App() {
             avg_distance: club.avgDistance,
           });
         }
-      } catch (e) { console.error('Sync clubs failed:', e); }
+        console.log('[App] Club sync complete');
+      } catch (e) {
+        console.error('[App] Sync clubs failed:', e);
+      }
     };
     const t = setTimeout(sync, 1500);
     return () => clearTimeout(t);
@@ -865,18 +872,27 @@ Requirements:
     localStorage.setItem('golf_bag', JSON.stringify(bag));
 
     // Save to Supabase
-    if (isSupabaseAvailable()) {
+    const supabaseReady = isSupabaseAvailable();
+    console.log('[App] Supabase available:', supabaseReady);
+
+    if (supabaseReady) {
       try {
+        console.log('[App] Saving', bag.length, 'clubs to Supabase');
         for (const club of bag) {
           await supabaseDb.saveClub({
             name: club.name,
             avg_distance: club.avgDistance,
           });
         }
-        console.log('Clubs saved to Supabase successfully');
+        console.log('[App] All clubs saved to Supabase successfully');
+        setError(null); // Clear any previous errors
       } catch (error) {
-        console.error('Failed to save clubs to Supabase:', error);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error('[App] Failed to save clubs to Supabase:', errorMsg);
+        setError(`Club sync failed: ${errorMsg}`);
       }
+    } else {
+      console.warn('[App] Supabase not available - clubs saved to localStorage only');
     }
 
     // Close modal

@@ -195,15 +195,21 @@ export const supabaseDb = {
   // Clubs operations
   // Use name as conflict key since app club IDs are not UUIDs
   async saveClub(club: { name: string; avg_distance: number; updated_at?: string }) {
+    const payload = {
+      name: club.name,
+      avg_distance: club.avg_distance,
+      updated_at: club.updated_at || new Date().toISOString(),
+    };
+    console.log('[Supabase] Saving club:', payload);
     const { data, error } = await supabase
       .from('clubs')
-      .upsert({
-        name: club.name,
-        avg_distance: club.avg_distance,
-        updated_at: club.updated_at || new Date().toISOString(),
-      }, { onConflict: 'name' })
+      .upsert(payload, { onConflict: 'name' })
       .select();
-    if (error) throw error;
+    if (error) {
+      console.error('[Supabase] Club save error:', error);
+      throw error;
+    }
+    console.log('[Supabase] Club saved successfully:', data);
     return data?.[0];
   },
 
