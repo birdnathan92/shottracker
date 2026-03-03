@@ -26,6 +26,7 @@ export interface DbCourse {
   name: string;
   location?: string;
   holes: DbCourseHole[];
+  teeBoxes?: { name: string; color: string; holes: DbCourseHole[] }[];
   created_at: string;
   updated_at: string;
 }
@@ -102,13 +103,17 @@ export const supabaseDb = {
 
   // Courses operations
   async saveCourse(course: DbCourse) {
+    // Store both holes and teeBoxes in holes_data JSONB column
+    const holesData = course.teeBoxes && course.teeBoxes.length > 0
+      ? JSON.stringify({ holes: course.holes, teeBoxes: course.teeBoxes })
+      : JSON.stringify(course.holes);
     const { data, error } = await supabase
       .from('courses')
       .upsert({
         id: course.id,
         name: course.name,
         location: course.location,
-        holes_data: JSON.stringify(course.holes),
+        holes_data: holesData,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'id' })
       .select();
@@ -122,10 +127,14 @@ export const supabaseDb = {
       .select('*')
       .order('name');
     if (error) throw error;
-    return (data || []).map((course: any) => ({
-      ...course,
-      holes: JSON.parse(course.holes_data || '[]'),
-    }));
+    return (data || []).map((course: any) => {
+      const parsed = JSON.parse(course.holes_data || '[]');
+      // Handle both formats: array of holes (old) or object with holes + teeBoxes (new)
+      if (Array.isArray(parsed)) {
+        return { ...course, holes: parsed };
+      }
+      return { ...course, holes: parsed.holes || [], teeBoxes: parsed.teeBoxes || undefined };
+    });
   },
 
   async deleteCourse(id: string) {

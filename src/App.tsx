@@ -342,6 +342,7 @@ export default function App() {
             name: course.name,
             location: course.location,
             holes: course.holes,
+            teeBoxes: course.teeBoxes,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           });
@@ -997,14 +998,48 @@ Requirements:
                   </p>
                 </div>
                 <div className="bg-white p-4 rounded-2xl border border-stone-100 shadow-sm">
-                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1">Avg Putts</p>
+                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1">Avg Putts/Hole</p>
                   <p className="text-3xl font-black text-emerald-600">
-                    {rounds.length > 0 
+                    {rounds.length > 0
                       ? (rounds.reduce((acc, r) => {
                           const holePutts = (Object.values(r.holeStats) as HoleStats[]).reduce((sum, h) => sum + h.putts, 0);
                           return acc + holePutts;
                         }, 0) / (rounds.length * 18)).toFixed(1)
                       : '--'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Additional Stats Row */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-white p-3 rounded-2xl border border-stone-100 shadow-sm text-center">
+                  <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest mb-1">Avg Par 3</p>
+                  <p className="text-2xl font-black text-emerald-600">
+                    {(() => {
+                      if (rounds.length === 0) return '--';
+                      const par3Holes = rounds.flatMap(r => (Object.values(r.holeStats) as HoleStats[]).filter(h => h.par === 3));
+                      return par3Holes.length > 0 ? (par3Holes.reduce((sum, h) => sum + h.score, 0) / par3Holes.length).toFixed(1) : '--';
+                    })()}
+                  </p>
+                </div>
+                <div className="bg-white p-3 rounded-2xl border border-stone-100 shadow-sm text-center">
+                  <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest mb-1">Avg Par 4</p>
+                  <p className="text-2xl font-black text-emerald-600">
+                    {(() => {
+                      if (rounds.length === 0) return '--';
+                      const par4Holes = rounds.flatMap(r => (Object.values(r.holeStats) as HoleStats[]).filter(h => h.par === 4));
+                      return par4Holes.length > 0 ? (par4Holes.reduce((sum, h) => sum + h.score, 0) / par4Holes.length).toFixed(1) : '--';
+                    })()}
+                  </p>
+                </div>
+                <div className="bg-white p-3 rounded-2xl border border-stone-100 shadow-sm text-center">
+                  <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest mb-1">Avg Par 5</p>
+                  <p className="text-2xl font-black text-emerald-600">
+                    {(() => {
+                      if (rounds.length === 0) return '--';
+                      const par5Holes = rounds.flatMap(r => (Object.values(r.holeStats) as HoleStats[]).filter(h => h.par === 5));
+                      return par5Holes.length > 0 ? (par5Holes.reduce((sum, h) => sum + h.score, 0) / par5Holes.length).toFixed(1) : '--';
+                    })()}
                   </p>
                 </div>
               </div>
@@ -1530,12 +1565,36 @@ Requirements:
                           }, {} as Record<string, number>)) as [string, number][]).sort((a, b) => b[1] - a[1])[0]?.[0] || '--'
                         : '--';
 
+                      // Calculate putting stats
+                      const totalPutts = holes.reduce((sum, h) => sum + h.putts, 0);
+                      const avgPuttsPerHole = holesPlayed > 0 ? (totalPutts / holesPlayed).toFixed(1) : '0';
+                      const avgPuttsPerRound = rounds.length > 0
+                        ? (rounds.reduce((acc, r) => acc + (Object.values(r.holeStats) as HoleStats[]).reduce((sum, h) => sum + h.putts, 0), 0) / rounds.length).toFixed(1)
+                        : '0';
+
+                      // Calculate par-specific scoring averages
+                      const par3Holes = holes.filter(h => h.par === 3);
+                      const par4Holes = holes.filter(h => h.par === 4);
+                      const par5Holes = holes.filter(h => h.par === 5);
+                      const avgPar3 = par3Holes.length > 0 ? (par3Holes.reduce((sum, h) => sum + h.score, 0) / par3Holes.length).toFixed(2) : '--';
+                      const avgPar4 = par4Holes.length > 0 ? (par4Holes.reduce((sum, h) => sum + h.score, 0) / par4Holes.length).toFixed(2) : '--';
+                      const avgPar5 = par5Holes.length > 0 ? (par5Holes.reduce((sum, h) => sum + h.score, 0) / par5Holes.length).toFixed(2) : '--';
+
+                      // Calculate scrambling from non-GIR holes only
+                      const nonGirHoles = holes.filter(h => !h.gir);
+                      const scramblingPct = nonGirHoles.length > 0 ? formatPct(upAndDowns, nonGirHoles.length) : '0%';
+
                       return [
+                        { label: 'Avg Putts/Hole', value: avgPuttsPerHole },
+                        { label: 'Avg Putts/Round', value: avgPuttsPerRound },
+                        { label: 'Avg Score: Par 3s', value: avgPar3 },
+                        { label: 'Avg Score: Par 4s', value: avgPar4 },
+                        { label: 'Avg Score: Par 5s', value: avgPar5 },
                         { label: 'Fairway Accuracy', value: formatPct(fairwayHits, par45Played) },
                         { label: 'Left Tendency', value: formatPct(leftMisses, par45Played) },
                         { label: 'Right Tendency', value: formatPct(rightMisses, par45Played) },
                         { label: 'GIR', value: formatPct(girHits, holesPlayed) },
-                        { label: 'Up & Downs', value: formatPct(upAndDowns, holesPlayed) },
+                        { label: 'Scrambling', value: scramblingPct },
                         { label: 'Sand Saves', value: formatPct(sandSaves, holesPlayed) },
                         { label: 'Missed Green: Left', value: formatPct(approachLeft, holesPlayed) },
                         { label: 'Missed Green: Right', value: formatPct(approachRight, holesPlayed) },
@@ -2095,7 +2154,7 @@ Requirements:
 
                         <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] font-bold">
                           <div className={`px-2 py-1 rounded-lg ${stat.upAndDown ? 'bg-purple-100 text-purple-700' : 'bg-stone-100 text-stone-400'}`}>
-                            Up & Down: {stat.upAndDown ? '✓' : '✗'}
+                            Scrambling: {stat.upAndDown ? '✓' : '✗'}
                           </div>
                           <div className={`px-2 py-1 rounded-lg ${stat.sandSave ? 'bg-amber-100 text-amber-700' : 'bg-stone-100 text-stone-400'}`}>
                             Sand Save: {stat.sandSave ? '✓' : '✗'}
