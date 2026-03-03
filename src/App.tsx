@@ -82,10 +82,10 @@ interface Drive {
 interface HoleStats {
   score: number;
   putts: number;
-  fairway: boolean;
-  gir: boolean;
-  upAndDown: boolean;
-  sandSave: boolean;
+  fairway: boolean | null;  // null = unselected
+  gir: boolean | null;      // null = unselected
+  upAndDown: boolean | null; // null = unselected
+  sandSave: boolean | null;  // null = unselected
   teeAccuracy: 'left' | 'center' | 'right' | null;
   approachAccuracy: 'left' | 'right' | 'short' | 'long' | 'center' | null;
   par: number;
@@ -118,19 +118,25 @@ type Unit = 'yards' | 'meters';
 
 const DEFAULT_CLUBS: Club[] = [
   { id: '1', name: 'Driver', avgDistance: 250 },
-  { id: '2', name: '3 Wood', avgDistance: 220 },
-  { id: '3', name: '5 Wood', avgDistance: 200 },
-  { id: '4', name: '4 Hybrid', avgDistance: 190 },
-  { id: '5', name: '5 Iron', avgDistance: 180 },
-  { id: '6', name: '6 Iron', avgDistance: 170 },
-  { id: '7', name: '7 Iron', avgDistance: 160 },
-  { id: '8', name: '8 Iron', avgDistance: 150 },
-  { id: '9', name: '9 Iron', avgDistance: 140 },
-  { id: '10', name: 'PW', avgDistance: 130 },
-  { id: '11', name: 'GW', avgDistance: 120 },
-  { id: '12', name: 'SW', avgDistance: 100 },
-  { id: '13', name: 'LW', avgDistance: 80 },
-  { id: '14', name: 'Putter', avgDistance: 0 },
+  { id: '2', name: '2 Iron', avgDistance: 210 },
+  { id: '3', name: '2 Hybrid', avgDistance: 215 },
+  { id: '4', name: '3 Iron', avgDistance: 205 },
+  { id: '5', name: '3 Hybrid', avgDistance: 200 },
+  { id: '6', name: '3 Wood', avgDistance: 220 },
+  { id: '7', name: '4 Iron', avgDistance: 195 },
+  { id: '8', name: '4 Hybrid', avgDistance: 190 },
+  { id: '9', name: '5 Wood', avgDistance: 200 },
+  { id: '10', name: '5 Iron', avgDistance: 180 },
+  { id: '11', name: '6 Iron', avgDistance: 170 },
+  { id: '12', name: '7 Iron', avgDistance: 160 },
+  { id: '13', name: '8 Iron', avgDistance: 150 },
+  { id: '14', name: '9 Iron', avgDistance: 140 },
+  { id: '15', name: 'PW', avgDistance: 130 },
+  { id: '16', name: 'GW', avgDistance: 120 },
+  { id: '17', name: 'SW', avgDistance: 100 },
+  { id: '18', name: 'LW', avgDistance: 80 },
+  { id: '19', name: 'Mini Driver', avgDistance: 240 },
+  { id: '20', name: 'Putter', avgDistance: 0 },
 ];
 
 // --- Utils ---
@@ -218,7 +224,7 @@ export default function App() {
   const [bag, setBag] = useState<Club[]>(() => loadLocal('golf_bag', DEFAULT_CLUBS));
   const [courses, setCourses] = useState<Course[]>(() => loadLocal('golf_courses', []));
   const [holeStats, setHoleStats] = useState<Record<number, HoleStats>>(() => loadLocal('golf_hole_stats', {
-    1: { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 }
+    1: { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 }
   }));
   const [approachShots, setApproachShots] = useState<ApproachShot[]>(() => loadLocal('golf_approach_shots', []));
 
@@ -510,7 +516,7 @@ export default function App() {
   // Score Handlers
   const updateScore = (delta: number) => {
     setHoleStats(prev => {
-      const current = prev[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
+      const current = prev[currentHole] || { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 };
       return {
         ...prev,
         [currentHole]: { ...current, score: Math.max(1, current.score + delta) }
@@ -520,7 +526,7 @@ export default function App() {
 
   const updatePutts = (delta: number) => {
     setHoleStats(prev => {
-      const current = prev[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
+      const current = prev[currentHole] || { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 };
       return {
         ...prev,
         [currentHole]: { ...current, putts: Math.max(0, current.putts + delta) }
@@ -530,7 +536,7 @@ export default function App() {
 
   const setTeeAccuracy = (accuracy: 'left' | 'center' | 'right') => {
     setHoleStats(prev => {
-      const current = prev[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
+      const current = prev[currentHole] || { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 };
       return {
         ...prev,
         [currentHole]: { ...current, teeAccuracy: current.teeAccuracy === accuracy ? null : accuracy }
@@ -540,7 +546,7 @@ export default function App() {
 
   const setApproachAccuracy = (accuracy: 'left' | 'right' | 'short' | 'long' | 'center') => {
     setHoleStats(prev => {
-      const current = prev[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
+      const current = prev[currentHole] || { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 };
       return {
         ...prev,
         [currentHole]: { ...current, approachAccuracy: current.approachAccuracy === accuracy ? null : accuracy }
@@ -550,11 +556,19 @@ export default function App() {
 
   const toggleStat = (stat: keyof Omit<HoleStats, 'score' | 'putts' | 'teeAccuracy' | 'approachAccuracy' | 'par'>) => {
     setHoleStats(prev => {
-      const current = prev[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
-      const newValue = !current[stat];
+      const current = prev[currentHole] || { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 };
+      // Cycle: null -> true -> false -> null
+      let newValue: boolean | null;
+      if (current[stat] === null) {
+        newValue = true;
+      } else if (current[stat] === true) {
+        newValue = false;
+      } else {
+        newValue = null;
+      }
 
       // Sand Save implies Up&Down (golf rule: sand saves are a type of up&down recovery)
-      if (stat === 'sandSave' && newValue) {
+      if (stat === 'sandSave' && newValue === true) {
         return {
           ...prev,
           [currentHole]: { ...current, [stat]: newValue, upAndDown: true }
@@ -574,7 +588,7 @@ export default function App() {
     if (!holeStats[nextHole]) {
       setHoleStats(prev => ({
         ...prev,
-        [nextHole]: { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 }
+        [nextHole]: { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 }
       }));
     }
     setCurrentHole(nextHole);
@@ -910,7 +924,7 @@ Requirements:
   };
 
   const resetRoundState = () => {
-    setHoleStats({ 1: { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 } });
+    setHoleStats({ 1: { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 } });
     setCourseName('');
     setCurrentHole(1);
     setRemainingDistance(null);
@@ -950,7 +964,7 @@ Requirements:
   };
 
   const liveDistance = startPos && currentPos ? calculateDistance(startPos, currentPos) : 0;
-  const currentHoleData = holeStats[currentHole] || { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 };
+  const currentHoleData = holeStats[currentHole] || { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 };
 
   const getScoreIndicator = (score: number, par: number) => {
     const diff = score - par;
@@ -1319,53 +1333,63 @@ Requirements:
                   </div>
                 )}
 
-                {/* Fairway Row - Check/X style */}
-                <div className="flex items-center justify-between px-4 py-2.5">
-                  <span className="font-bold text-stone-700 text-sm">Fairway</span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => { if (!currentHoleData.fairway) toggleStat('fairway' as any); }}
-                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
-                        currentHoleData.fairway
-                          ? 'bg-emerald-500 border-emerald-500 text-white'
-                          : 'bg-white border-stone-200 text-stone-300 hover:border-emerald-300'
-                      }`}
-                    >
-                      <Check size={20} strokeWidth={3} />
-                    </button>
-                    <button
-                      onClick={() => { if (currentHoleData.fairway) toggleStat('fairway' as any); }}
-                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
-                        !currentHoleData.fairway
-                          ? 'bg-stone-400 border-stone-400 text-white'
-                          : 'bg-white border-stone-200 text-stone-300 hover:border-stone-400'
-                      }`}
-                    >
-                      <X size={20} strokeWidth={3} />
-                    </button>
+                {/* Fairway Row - Hidden on Par 3 - Check/X style with unselected state */}
+                {currentHoleData.par > 3 && (
+                  <div className="flex items-center justify-between px-4 py-2.5">
+                    <span className="font-bold text-stone-700 text-sm">Fairway</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => toggleStat('fairway' as any)}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                          currentHoleData.fairway === true
+                            ? 'bg-emerald-500 border-emerald-500 text-white'
+                            : currentHoleData.fairway === false
+                            ? 'bg-white border-stone-200 text-stone-300'
+                            : 'bg-stone-100 border-stone-300 text-stone-400'
+                        }`}
+                      >
+                        <Check size={20} strokeWidth={3} />
+                      </button>
+                      <button
+                        onClick={() => toggleStat('fairway' as any)}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                          currentHoleData.fairway === false
+                            ? 'bg-stone-400 border-stone-400 text-white'
+                            : currentHoleData.fairway === true
+                            ? 'bg-white border-stone-200 text-stone-300'
+                            : 'bg-stone-100 border-stone-300 text-stone-400'
+                        }`}
+                      >
+                        <X size={20} strokeWidth={3} />
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
 
-                {/* GIR Row - Check/X style */}
+                {/* GIR Row - Check/X style with unselected state */}
                 <div className="flex items-center justify-between px-4 py-2.5">
                   <span className="font-bold text-stone-700 text-sm">GIR</span>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => { if (!currentHoleData.gir) toggleStat('gir' as any); }}
+                      onClick={() => toggleStat('gir' as any)}
                       className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
-                        currentHoleData.gir
+                        currentHoleData.gir === true
                           ? 'bg-emerald-500 border-emerald-500 text-white'
-                          : 'bg-white border-stone-200 text-stone-300 hover:border-emerald-300'
+                          : currentHoleData.gir === false
+                          ? 'bg-white border-stone-200 text-stone-300'
+                          : 'bg-stone-100 border-stone-300 text-stone-400'
                       }`}
                     >
                       <Check size={20} strokeWidth={3} />
                     </button>
                     <button
-                      onClick={() => { if (currentHoleData.gir) toggleStat('gir' as any); }}
+                      onClick={() => toggleStat('gir' as any)}
                       className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
-                        !currentHoleData.gir
+                        currentHoleData.gir === false
                           ? 'bg-stone-400 border-stone-400 text-white'
-                          : 'bg-white border-stone-200 text-stone-300 hover:border-stone-400'
+                          : currentHoleData.gir === true
+                          ? 'bg-white border-stone-200 text-stone-300'
+                          : 'bg-stone-100 border-stone-300 text-stone-400'
                       }`}
                     >
                       <X size={20} strokeWidth={3} />
@@ -1373,26 +1397,30 @@ Requirements:
                   </div>
                 </div>
 
-                {/* Sand Save Row - Check/X style */}
+                {/* Sand Save Row - Check/X style with unselected state */}
                 <div className="flex items-center justify-between px-4 py-2.5">
                   <span className="font-bold text-stone-700 text-sm">Sand Save</span>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => { if (!currentHoleData.sandSave) toggleStat('sandSave' as any); }}
+                      onClick={() => toggleStat('sandSave' as any)}
                       className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
-                        currentHoleData.sandSave
+                        currentHoleData.sandSave === true
                           ? 'bg-emerald-500 border-emerald-500 text-white'
-                          : 'bg-white border-stone-200 text-stone-300 hover:border-emerald-300'
+                          : currentHoleData.sandSave === false
+                          ? 'bg-white border-stone-200 text-stone-300'
+                          : 'bg-stone-100 border-stone-300 text-stone-400'
                       }`}
                     >
                       <Check size={20} strokeWidth={3} />
                     </button>
                     <button
-                      onClick={() => { if (currentHoleData.sandSave) toggleStat('sandSave' as any); }}
+                      onClick={() => toggleStat('sandSave' as any)}
                       className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
-                        !currentHoleData.sandSave
+                        currentHoleData.sandSave === false
                           ? 'bg-stone-400 border-stone-400 text-white'
-                          : 'bg-white border-stone-200 text-stone-300 hover:border-stone-400'
+                          : currentHoleData.sandSave === true
+                          ? 'bg-white border-stone-200 text-stone-300'
+                          : 'bg-stone-100 border-stone-300 text-stone-400'
                       }`}
                     >
                       <X size={20} strokeWidth={3} />
@@ -1400,26 +1428,30 @@ Requirements:
                   </div>
                 </div>
 
-                {/* Up & Down Row - Check/X style */}
+                {/* Up & Down Row - Check/X style with unselected state */}
                 <div className="flex items-center justify-between px-4 py-2.5">
                   <span className="font-bold text-stone-700 text-sm">Up & Down</span>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => { if (!currentHoleData.upAndDown) toggleStat('upAndDown' as any); }}
+                      onClick={() => toggleStat('upAndDown' as any)}
                       className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
-                        currentHoleData.upAndDown
+                        currentHoleData.upAndDown === true
                           ? 'bg-emerald-500 border-emerald-500 text-white'
-                          : 'bg-white border-stone-200 text-stone-300 hover:border-emerald-300'
+                          : currentHoleData.upAndDown === false
+                          ? 'bg-white border-stone-200 text-stone-300'
+                          : 'bg-stone-100 border-stone-300 text-stone-400'
                       }`}
                     >
                       <Check size={20} strokeWidth={3} />
                     </button>
                     <button
-                      onClick={() => { if (currentHoleData.upAndDown) toggleStat('upAndDown' as any); }}
+                      onClick={() => toggleStat('upAndDown' as any)}
                       className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
-                        !currentHoleData.upAndDown
+                        currentHoleData.upAndDown === false
                           ? 'bg-stone-400 border-stone-400 text-white'
-                          : 'bg-white border-stone-200 text-stone-300 hover:border-stone-400'
+                          : currentHoleData.upAndDown === true
+                          ? 'bg-white border-stone-200 text-stone-300'
+                          : 'bg-stone-100 border-stone-300 text-stone-400'
                       }`}
                     >
                       <X size={20} strokeWidth={3} />
@@ -1988,7 +2020,7 @@ Requirements:
                     if (confirm('Are you sure you want to clear all history and stats?')) {
                       setHistory([]);
                       setRounds([]);
-                      setHoleStats({ 1: { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 } });
+                      setHoleStats({ 1: { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 } });
                       localStorage.clear();
                       window.location.reload();
                     }
