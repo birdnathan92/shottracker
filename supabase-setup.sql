@@ -1,3 +1,6 @@
+-- Golf Tracker - Supabase Setup SQL
+-- Safe to run multiple times (uses IF NOT EXISTS and DROP POLICY IF EXISTS)
+
 -- Create Courses table
 CREATE TABLE IF NOT EXISTS courses (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -16,9 +19,15 @@ CREATE TABLE IF NOT EXISTS rounds (
   total_score INTEGER,
   total_par INTEGER,
   hole_stats_data JSONB DEFAULT '{}'::jsonb,
+  slope INTEGER,
+  course_rating DOUBLE PRECISION,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Add slope/course_rating if table already existed without them
+ALTER TABLE rounds ADD COLUMN IF NOT EXISTS slope INTEGER;
+ALTER TABLE rounds ADD COLUMN IF NOT EXISTS course_rating DOUBLE PRECISION;
 
 -- Create Drives table
 CREATE TABLE IF NOT EXISTS drives (
@@ -72,14 +81,21 @@ CREATE INDEX IF NOT EXISTS idx_drives_timestamp ON drives(timestamp);
 CREATE INDEX IF NOT EXISTS idx_hole_stats_round_id ON hole_stats(round_id);
 CREATE INDEX IF NOT EXISTS idx_clubs_name ON clubs(name);
 
--- Enable Row Level Security (RLS) for security
+-- Enable Row Level Security (RLS)
 ALTER TABLE courses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rounds ENABLE ROW LEVEL SECURITY;
 ALTER TABLE drives ENABLE ROW LEVEL SECURITY;
 ALTER TABLE hole_stats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clubs ENABLE ROW LEVEL SECURITY;
 
--- Create policies (allow all access - modify based on your auth needs)
+-- Drop existing policies first (safe to run if they don't exist)
+DROP POLICY IF EXISTS "Allow all access to courses" ON courses;
+DROP POLICY IF EXISTS "Allow all access to rounds" ON rounds;
+DROP POLICY IF EXISTS "Allow all access to drives" ON drives;
+DROP POLICY IF EXISTS "Allow all access to hole_stats" ON hole_stats;
+DROP POLICY IF EXISTS "Allow all access to clubs" ON clubs;
+
+-- Re-create policies (allow all access - modify based on your auth needs)
 CREATE POLICY "Allow all access to courses" ON courses
   FOR ALL USING (true) WITH CHECK (true);
 
