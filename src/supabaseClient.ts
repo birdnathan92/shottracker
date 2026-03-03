@@ -68,6 +68,7 @@ export interface DbClub {
   name: string;
   avg_distance: number;
   created_at: string;
+  updated_at?: string;
 }
 
 // Database operation functions

@@ -97,10 +97,17 @@ interface CourseHole {
   distance: number;
 }
 
+interface TeeBox {
+  name: string;
+  color: string;
+  holes: CourseHole[];
+}
+
 interface Course {
   id: string;
   name: string;
   holes: CourseHole[];
+  teeBoxes?: TeeBox[];
 }
 
 type Unit = 'yards' | 'meters';
@@ -159,98 +166,75 @@ interface Round {
   holeStats: Record<number, HoleStats>;
 }
 
+// Helper: safely parse localStorage
+function loadLocal<T>(key: string, fallback: T): T {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? JSON.parse(saved) : fallback;
+  } catch { return fallback; }
+}
+
+// Approach Shot type (defined outside component for lazy init)
+interface ApproachShot {
+  holeNumber: number;
+  distance: number;
+  club: string;
+  timestamp: number;
+}
+
 export default function App() {
   const [currentPos, setCurrentPos] = useState<Position | null>(null);
   const [startPos, setStartPos] = useState<Position | null>(null);
-  const [history, setHistory] = useState<Drive[]>([]);
-  const [rounds, setRounds] = useState<Round[]>([]);
-  const [unit, setUnit] = useState<Unit>('yards');
   const [error, setError] = useState<string | null>(null);
   const [isTracking, setIsTracking] = useState(false);
   const [lastDriveDistance, setLastDriveDistance] = useState<number | null>(null);
   const [view, setView] = useState<'home' | 'tracker' | 'history' | 'settings'>('home');
-  
+
   // Course Search States
   const [courseSearch, setCourseSearch] = useState('');
   const [isSearchingCourse, setIsSearchingCourse] = useState(false);
-  const [courseName, setCourseName] = useState('');
-  
-  // New States
-  const [bag, setBag] = useState<Club[]>(DEFAULT_CLUBS);
+  const [courseName, setCourseName] = useState(() => loadLocal('golf_course_name', ''));
+
+  // ---- All persisted state: lazy-initialized from localStorage ----
+  const [history, setHistory] = useState<Drive[]>(() => loadLocal('golf_drive_history', []));
+  const [rounds, setRounds] = useState<Round[]>(() => loadLocal('golf_rounds', []));
+  const [unit, setUnit] = useState<Unit>(() => loadLocal('golf_unit', 'yards'));
+  const [bag, setBag] = useState<Club[]>(() => loadLocal('golf_bag', DEFAULT_CLUBS));
+  const [courses, setCourses] = useState<Course[]>(() => loadLocal('golf_courses', []));
+  const [holeStats, setHoleStats] = useState<Record<number, HoleStats>>(() => loadLocal('golf_hole_stats', {
+    1: { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 }
+  }));
+  const [approachShots, setApproachShots] = useState<ApproachShot[]>(() => loadLocal('golf_approach_shots', []));
+
   const [selectedClubId, setSelectedClubId] = useState<string>(DEFAULT_CLUBS[0].id);
   const [isBagModalOpen, setIsBagModalOpen] = useState(false);
-  const [courses, setCourses] = useState<Course[]>([]);
   const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
-  const [isRoundActive, setIsRoundActive] = useState(false);
+  const [isRoundActive, setIsRoundActive] = useState(() => loadLocal('golf_is_round_active', false));
   const [selectedRound, setSelectedRound] = useState<Round | null>(null);
   const [isRoundModalOpen, setIsRoundModalOpen] = useState(false);
-
-  // Score Tracking State
-  const [currentHole, setCurrentHole] = useState(1);
-  const [holeStats, setHoleStats] = useState<Record<number, HoleStats>>({
-    1: { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 }
-  });
-
-  // Approach Shot Tracking
-  interface ApproachShot {
-    holeNumber: number;
-    distance: number;
-    club: string;
-    timestamp: number;
-  }
-  const [approachShots, setApproachShots] = useState<ApproachShot[]>([]);
   const [selectedApproachClubId, setSelectedApproachClubId] = useState<string>(DEFAULT_CLUBS[0].id);
   const [remainingDistance, setRemainingDistance] = useState<number | null>(null);
+  const [teeBoxSelectionCourse, setTeeBoxSelectionCourse] = useState<Course | null>(null);
 
-  // Load data from localStorage
-  useEffect(() => {
-    const savedHistory = localStorage.getItem('golf_drive_history');
-    if (savedHistory) setHistory(JSON.parse(savedHistory));
-    
-    const savedBag = localStorage.getItem('golf_bag');
-    if (savedBag) setBag(JSON.parse(savedBag));
+  // Score Tracking State
+  const [currentHole, setCurrentHole] = useState(() => loadLocal('golf_current_hole', 1));
 
-    const savedStats = localStorage.getItem('golf_hole_stats');
-    if (savedStats) setHoleStats(JSON.parse(savedStats));
+  // Track if initial mount is done to avoid overwriting localStorage with defaults
+  const hasMounted = React.useRef(false);
+  useEffect(() => { hasMounted.current = true; }, []);
 
-    const savedCourses = localStorage.getItem('golf_courses');
-    if (savedCourses) setCourses(JSON.parse(savedCourses));
-
-    const savedRounds = localStorage.getItem('golf_rounds');
-    if (savedRounds) setRounds(JSON.parse(savedRounds));
-  }, []);
-
-  // Save data to localStorage
-  useEffect(() => {
-    localStorage.setItem('golf_drive_history', JSON.stringify(history));
-  }, [history]);
-
-  useEffect(() => {
-    localStorage.setItem('golf_bag', JSON.stringify(bag));
-  }, [bag]);
-
-  useEffect(() => {
-    localStorage.setItem('golf_hole_stats', JSON.stringify(holeStats));
-  }, [holeStats]);
-
-  useEffect(() => {
-    localStorage.setItem('golf_courses', JSON.stringify(courses));
-  }, [courses]);
-
-  useEffect(() => {
-    localStorage.setItem('golf_rounds', JSON.stringify(rounds));
-  }, [rounds]);
-
-  useEffect(() => {
-    localStorage.setItem('golf_approach_shots', JSON.stringify(approachShots));
-  }, [approachShots]);
-
-  // Load approach shots from localStorage
-  useEffect(() => {
-    const savedApproachShots = localStorage.getItem('golf_approach_shots');
-    if (savedApproachShots) setApproachShots(JSON.parse(savedApproachShots));
-  }, []);
+  // ---- Save to localStorage on every state change (skip initial mount) ----
+  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_drive_history', JSON.stringify(history)); }, [history]);
+  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_rounds', JSON.stringify(rounds)); }, [rounds]);
+  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_unit', JSON.stringify(unit)); }, [unit]);
+  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_bag', JSON.stringify(bag)); }, [bag]);
+  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_courses', JSON.stringify(courses)); }, [courses]);
+  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_hole_stats', JSON.stringify(holeStats)); }, [holeStats]);
+  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_approach_shots', JSON.stringify(approachShots)); }, [approachShots]);
+  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_is_round_active', JSON.stringify(isRoundActive)); }, [isRoundActive]);
+  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_current_hole', JSON.stringify(currentHole)); }, [currentHole]);
+  useEffect(() => { if (hasMounted.current) localStorage.setItem('golf_course_name', JSON.stringify(courseName)); }, [courseName]);
 
 
   // Load courses from Supabase on app startup
@@ -409,13 +393,14 @@ export default function App() {
             id: drive.id,
             start_lat: drive.start.lat,
             start_lng: drive.start.lng,
+            start_accuracy: drive.start.accuracy || 0,
             end_lat: drive.end.lat,
             end_lng: drive.end.lng,
+            end_accuracy: drive.end.accuracy || 0,
             distance: drive.distance,
             club: drive.club,
             timestamp: drive.timestamp,
             created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
           });
         }
       } catch (error) {
@@ -673,15 +658,40 @@ export default function App() {
 
   const importCoursePars = async () => {
     if (!courseSearch.trim()) return;
-    
+
     setIsSearchingCourse(true);
     setError(null);
-    
+
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `Find the hole-by-hole par and distance information for the golf course: "${courseSearch}". Return ONLY a JSON object with a "name" string and a "holes" array of 18 objects, each with "par" (integer) and "distance" (integer in yards). Example: {"name": "Pebble Beach", "holes": [{"par": 4, "distance": 380}, ...]}`,
+        contents: `Find hole-by-hole par and tee box yardage information for the golf course: "${courseSearch}".
+
+Return ONLY a JSON object with this exact structure:
+{
+  "name": "Course Name",
+  "teeBoxes": [
+    {
+      "name": "Blue",
+      "color": "blue",
+      "holes": [{"par": 4, "distance": 380}, ...]
+    },
+    {
+      "name": "White",
+      "color": "white",
+      "holes": [{"par": 4, "distance": 350}, ...]
+    }
+  ]
+}
+
+Requirements:
+- Include ALL available tee boxes (Championship/Black, Blue, White, Red, Gold, etc.)
+- Each tee box must have exactly 18 holes with "par" (integer) and "distance" (integer in yards)
+- Par values are the same across all tee boxes, only distances change
+- Order tee boxes from longest to shortest
+- If you cannot find specific yardages for some tee boxes, still include the par values with distance as 0
+- Common tee box colors: black, blue, white, red, gold, green`,
         config: {
           tools: [{ googleSearch: {} }],
           responseMimeType: "application/json"
@@ -689,14 +699,37 @@ export default function App() {
       });
 
       const data = JSON.parse(response.text);
-      if (data.holes && Array.isArray(data.holes) && data.holes.length === 18) {
+
+      if (data.teeBoxes && Array.isArray(data.teeBoxes) && data.teeBoxes.length > 0) {
+        // Use the first tee box as default holes
+        const defaultTee = data.teeBoxes[0];
+        const teeBoxes: TeeBox[] = data.teeBoxes.map((tb: any) => ({
+          name: tb.name || 'Default',
+          color: tb.color || 'white',
+          holes: (tb.holes || []).map((h: any) => ({ par: h.par || 4, distance: h.distance || 0 }))
+        })).filter((tb: TeeBox) => tb.holes.length === 18);
+
+        if (teeBoxes.length > 0) {
+          const newCourse: Course = {
+            id: crypto.randomUUID(),
+            name: data.name || courseSearch,
+            holes: teeBoxes[0].holes,
+            teeBoxes
+          };
+          setCourses(prev => [newCourse, ...prev]);
+          setCourseSearch('');
+          setError(null);
+        } else {
+          throw new Error("No valid tee box data found");
+        }
+      } else if (data.holes && Array.isArray(data.holes) && data.holes.length === 18) {
+        // Fallback: old format without tee boxes
         const newCourse: Course = {
           id: crypto.randomUUID(),
           name: data.name || courseSearch,
           holes: data.holes.map((h: any) => ({ par: h.par || 4, distance: h.distance || 0 }))
         };
         setCourses(prev => [newCourse, ...prev]);
-        applyCourse(newCourse);
         setCourseSearch('');
       } else {
         throw new Error("Invalid course data received");
@@ -709,16 +742,17 @@ export default function App() {
     }
   };
 
-  const applyCourse = (course: Course) => {
+  const applyCourse = (course: Course, teeBox?: TeeBox) => {
+    const holes = teeBox ? teeBox.holes : course.holes;
     const newStats: Record<number, HoleStats> = {};
-    course.holes.forEach((hole, index) => {
+    holes.forEach((hole, index) => {
       const holeNum = index + 1;
-      newStats[holeNum] = { 
-        score: hole.par, 
+      newStats[holeNum] = {
+        score: hole.par,
         putts: 2,
-        fairway: false, 
-        gir: false, 
-        upAndDown: false, 
+        fairway: false,
+        gir: false,
+        upAndDown: false,
         sandSave: false,
         teeAccuracy: null,
         approachAccuracy: null,
@@ -727,14 +761,17 @@ export default function App() {
       };
     });
     setHoleStats(newStats);
-    setCourseName(course.name);
+    const teeLabel = teeBox ? ` (${teeBox.name})` : '';
+    setCourseName(course.name + teeLabel);
     setCurrentHole(1);
     setIsRoundActive(true);
+    setTeeBoxSelectionCourse(null);
+    setView('tracker');
   };
 
   const saveManualCourse = () => {
     if (!editingCourse || !editingCourse.name.trim()) return;
-    
+
     setCourses(prev => {
       const exists = prev.find(c => c.id === editingCourse.id);
       if (exists) {
@@ -742,8 +779,7 @@ export default function App() {
       }
       return [editingCourse, ...prev];
     });
-    
-    applyCourse(editingCourse);
+
     setIsCourseModalOpen(false);
     setEditingCourse(null);
   };
@@ -830,12 +866,24 @@ export default function App() {
     setIsBagModalOpen(false);
   };
 
+  const resetRoundState = () => {
+    setHoleStats({ 1: { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 } });
+    setCourseName('');
+    setCurrentHole(1);
+    setRemainingDistance(null);
+    setLastDriveDistance(null);
+    setIsRoundActive(false);
+    setIsTracking(false);
+    setStartPos(null);
+    setView('home');
+  };
+
   const endRound = () => {
     if (!courseName) return;
-    
-    const holes = Object.values(holeStats);
+
+    const holes = Object.values(holeStats) as HoleStats[];
     const totalScore = holes.reduce((acc, h) => acc + h.score, 0);
-    const totalPar = holes.reduce((acc, h) => acc + h.par, 0);
+    const totalPar = holes.reduce((acc, h) => acc + (h.par || 4), 0);
 
     const newRound: Round = {
       id: crypto.randomUUID(),
@@ -847,14 +895,13 @@ export default function App() {
     };
 
     setRounds([newRound, ...rounds]);
+    resetRoundState();
+  };
 
-    // Reset for next round
-    setHoleStats({ 1: { score: 4, putts: 2, fairway: false, gir: false, upAndDown: false, sandSave: false, teeAccuracy: null, approachAccuracy: null, par: 4 } });
-    setCourseName('');
-    setCurrentHole(1);
-    setRemainingDistance(null);
-    setIsRoundActive(false);
-    setView('home');
+  const cancelRound = () => {
+    if (confirm('Cancel this round? All scores and stats for this round will be deleted.')) {
+      resetRoundState();
+    }
   };
 
   const liveDistance = startPos && currentPos ? calculateDistance(startPos, currentPos) : 0;
@@ -954,7 +1001,7 @@ export default function App() {
                   <p className="text-3xl font-black text-emerald-600">
                     {rounds.length > 0 
                       ? (rounds.reduce((acc, r) => {
-                          const holePutts = Object.values(r.holeStats).reduce((sum, h) => sum + h.putts, 0);
+                          const holePutts = (Object.values(r.holeStats) as HoleStats[]).reduce((sum, h) => sum + h.putts, 0);
                           return acc + holePutts;
                         }, 0) / (rounds.length * 18)).toFixed(1)
                       : '--'}
@@ -994,27 +1041,69 @@ export default function App() {
                 ) : (
                   <div className="space-y-2">
                     {courses.map(course => (
-                      <button
-                        key={course.id}
-                        onClick={() => {
-                          applyCourse(course);
-                          setView('tracker');
-                        }}
-                        disabled={isRoundActive}
-                        className={`w-full flex items-center justify-between p-4 bg-white rounded-2xl border border-stone-100 shadow-sm transition-colors text-left ${
-                          isRoundActive
-                            ? 'opacity-50 cursor-not-allowed'
-                            : 'hover:border-emerald-200'
-                        }`}
-                      >
-                        <div>
-                          <p className="font-bold text-stone-800">{course.name}</p>
-                          <p className="text-[10px] text-stone-400 uppercase tracking-widest font-bold">
-                            18 Holes • Par {course.holes.reduce((acc, h) => acc + h.par, 0)}
-                          </p>
-                        </div>
-                        <ChevronRight size={20} className="text-stone-300" />
-                      </button>
+                      <div key={course.id}>
+                        <button
+                          onClick={() => {
+                            if (course.teeBoxes && course.teeBoxes.length > 1) {
+                              setTeeBoxSelectionCourse(teeBoxSelectionCourse?.id === course.id ? null : course);
+                            } else {
+                              applyCourse(course, course.teeBoxes?.[0]);
+                            }
+                          }}
+                          disabled={isRoundActive}
+                          className={`w-full flex items-center justify-between p-4 bg-white rounded-2xl border border-stone-100 shadow-sm transition-colors text-left ${
+                            isRoundActive
+                              ? 'opacity-50 cursor-not-allowed'
+                              : 'hover:border-emerald-200'
+                          }`}
+                        >
+                          <div>
+                            <p className="font-bold text-stone-800">{course.name}</p>
+                            <p className="text-[10px] text-stone-400 uppercase tracking-widest font-bold">
+                              18 Holes • Par {course.holes.reduce((acc, h) => acc + h.par, 0)}
+                              {course.teeBoxes && course.teeBoxes.length > 1 && ` • ${course.teeBoxes.length} Tees`}
+                            </p>
+                          </div>
+                          <ChevronRight size={20} className={`text-stone-300 transition-transform ${teeBoxSelectionCourse?.id === course.id ? 'rotate-90' : ''}`} />
+                        </button>
+                        {/* Tee Box Selection */}
+                        {teeBoxSelectionCourse?.id === course.id && course.teeBoxes && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            className="ml-4 mt-1 space-y-1"
+                          >
+                            {course.teeBoxes.map((tee, idx) => {
+                              const totalYds = tee.holes.reduce((sum, h) => sum + h.distance, 0);
+                              const teeColors: Record<string, string> = {
+                                black: 'bg-stone-800 text-white',
+                                blue: 'bg-blue-500 text-white',
+                                white: 'bg-white text-stone-700 border border-stone-200',
+                                red: 'bg-red-500 text-white',
+                                gold: 'bg-amber-400 text-stone-800',
+                                green: 'bg-green-500 text-white',
+                              };
+                              const colorClass = teeColors[tee.color.toLowerCase()] || 'bg-stone-200 text-stone-700';
+                              return (
+                                <button
+                                  key={idx}
+                                  onClick={() => applyCourse(course, tee)}
+                                  className="w-full flex items-center gap-3 p-3 bg-stone-50 rounded-xl hover:bg-emerald-50 transition-colors text-left"
+                                >
+                                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-black ${colorClass}`}>
+                                    {tee.name.charAt(0)}
+                                  </span>
+                                  <div className="flex-1">
+                                    <p className="font-bold text-stone-700 text-sm">{tee.name} Tees</p>
+                                    <p className="text-[10px] text-stone-400 font-bold">{totalYds > 0 ? `${totalYds} yards` : 'Par only'}</p>
+                                  </div>
+                                  <ChevronRight size={16} className="text-stone-300" />
+                                </button>
+                              );
+                            })}
+                          </motion.div>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}
@@ -1355,19 +1444,28 @@ export default function App() {
                 </button>
               </div>
 
-              {/* End Round Button */}
+              {/* End Round / Cancel Round */}
               {courseName && (
-                <button
-                  onClick={() => {
-                    if (confirm('End round and post score?')) {
-                      endRound();
-                    }
-                  }}
-                  className="w-full py-3 bg-stone-800 text-white font-bold rounded-xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 text-sm"
-                >
-                  <CheckCircle2 size={18} />
-                  End Round & Post Score
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      if (confirm('End round and post score?')) {
+                        endRound();
+                      }
+                    }}
+                    className="flex-1 py-3 bg-stone-800 text-white font-bold rounded-xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 text-sm"
+                  >
+                    <CheckCircle2 size={18} />
+                    End Round & Post Score
+                  </button>
+                  <button
+                    onClick={cancelRound}
+                    className="py-3 px-4 bg-red-100 text-red-500 font-bold rounded-xl border border-red-200 active:scale-95 transition-all flex items-center justify-center"
+                    title="Cancel round"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
               )}
             </motion.div>
           )}
@@ -1396,9 +1494,9 @@ export default function App() {
                   <tbody className="divide-y divide-stone-50">
                     {(() => {
                       // Use all rounds for stats if available, otherwise current holeStats
-                      const allHoles = rounds.length > 0 
-                        ? rounds.flatMap(r => Object.values(r.holeStats))
-                        : Object.values(holeStats);
+                      const allHoles: HoleStats[] = rounds.length > 0
+                        ? rounds.flatMap(r => Object.values(r.holeStats) as HoleStats[])
+                        : Object.values(holeStats) as HoleStats[];
                       
                       const holes = allHoles;
                       const holesPlayed = holes.length;
@@ -1426,10 +1524,10 @@ export default function App() {
                         : 0;
 
                       const mostUsedApproachClub = approachShots.length > 0
-                        ? Object.entries(approachShots.reduce((acc: Record<string, number>, shot) => {
+                        ? (Object.entries(approachShots.reduce((acc: Record<string, number>, shot) => {
                             acc[shot.club] = (acc[shot.club] || 0) + 1;
                             return acc;
-                          }, {})).sort((a, b) => b[1] - a[1])[0]?.[0] || '--'
+                          }, {} as Record<string, number>)) as [string, number][]).sort((a, b) => b[1] - a[1])[0]?.[0] || '--'
                         : '--';
 
                       return [
