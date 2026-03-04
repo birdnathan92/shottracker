@@ -308,15 +308,17 @@ export default function App() {
           localStorage.setItem('golf_rounds', JSON.stringify(mapped));
         }
 
-        // Load clubs from Supabase (these are reference data for custom yardages)
-        // But keep the user's selected bag from localStorage
+        // Load clubs reference data from Supabase
         const clubsFromSupabase = await supabaseDb.getClubs();
         console.log('[App] Loaded', clubsFromSupabase?.length || 0, 'clubs from Supabase');
 
-        // NOTE: We don't override the user's selected bag from localStorage.
-        // The bag is what the user selected + their custom distances.
-        // Supabase clubs are just reference data to prevent duplicate entries.
-        // User's bag is the source of truth - stored in localStorage and synced to Supabase.
+        // Load user's custom bag from Supabase (bag selection + custom distances)
+        const bagFromSupabase = await supabaseDb.getBag();
+        if (bagFromSupabase && bagFromSupabase.length > 0) {
+          setBag(bagFromSupabase);
+          localStorage.setItem('golf_bag', JSON.stringify(bagFromSupabase));
+          console.log('[App] Loaded custom bag from Supabase:', bagFromSupabase.length, 'clubs');
+        }
 
         // Load drives - map flat DB fields to nested Position objects
         const drivesFromSupabase = await supabaseDb.getDrives();
@@ -942,32 +944,20 @@ Requirements:
 
     if (supabaseReady) {
       try {
-        console.log('[App] Saving', bag.length, 'clubs to Supabase');
-        let successCount = 0;
-        let skipCount = 0;
+        console.log('[App] Saving bag to Supabase:', bag.length, 'clubs');
 
-        for (const club of bag) {
-          try {
-            const result = await supabaseDb.saveClub({
-              name: club.name,
-              avg_distance: club.avgDistance,
-            });
-            if (result) successCount++;
-          } catch (err) {
-            console.error('[App] Error saving club', club.name, ':', err);
-            skipCount++;
-          }
-        }
+        // Save the full bag (user's selected clubs + custom distances)
+        await supabaseDb.saveBag(bag);
+        console.log('[App] Bag saved to Supabase');
 
-        console.log(`[App] Club save complete: ${successCount} inserted, ${skipCount} skipped (already exist)`);
         setError(null); // Clear any previous errors
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error('[App] Failed to save clubs to Supabase:', errorMsg);
-        setError(`Club sync failed: ${errorMsg}`);
+        console.error('[App] Failed to save bag to Supabase:', errorMsg);
+        setError(`Bag sync failed: ${errorMsg}`);
       }
     } else {
-      console.warn('[App] Supabase not available - clubs saved to localStorage only');
+      console.warn('[App] Supabase not available - bag saved to localStorage only');
     }
 
     // Close modal

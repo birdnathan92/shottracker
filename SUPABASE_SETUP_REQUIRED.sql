@@ -8,7 +8,7 @@
 -- ============================================================================
 
 -- ============================================================================
--- CLUBS TABLE
+-- CLUBS TABLE (reference data of all possible clubs)
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS clubs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -23,6 +23,22 @@ ALTER TABLE clubs ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'clubs' AND policyname = 'Allow all access to clubs') THEN
     CREATE POLICY "Allow all access to clubs" ON clubs FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
+-- ============================================================================
+-- USER_BAG TABLE (stores user's selected clubs and custom distances)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS user_bag (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  bag_data JSONB NOT NULL DEFAULT '[]',
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE user_bag ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_bag' AND policyname = 'Allow all access to user_bag') THEN
+    CREATE POLICY "Allow all access to user_bag" ON user_bag FOR ALL USING (true) WITH CHECK (true);
   END IF;
 END $$;
 

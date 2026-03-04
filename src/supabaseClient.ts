@@ -245,4 +245,40 @@ export const supabaseDb = {
       .eq('id', id);
     if (error) throw error;
   },
+
+  // User Bag operations
+  async saveBag(bag: any[]) {
+    const { data, error } = await supabase
+      .from('user_bag')
+      .upsert({
+        id: '00000000-0000-0000-0000-000000000001', // singleton ID
+        bag_data: JSON.stringify(bag),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' })
+      .select();
+
+    if (error) {
+      console.error('[Supabase] saveBag error:', error);
+      throw error;
+    }
+    return data?.[0];
+  },
+
+  async getBag() {
+    const { data, error } = await supabase
+      .from('user_bag')
+      .select('bag_data')
+      .eq('id', '00000000-0000-0000-0000-000000000001')
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+      console.error('[Supabase] getBag error:', error);
+      throw error;
+    }
+
+    if (data?.bag_data) {
+      return typeof data.bag_data === 'string' ? JSON.parse(data.bag_data) : data.bag_data;
+    }
+    return null;
+  },
 };
