@@ -211,43 +211,22 @@ export const supabaseDb = {
   },
 
   // Clubs operations
-  // Clubs come from a fixed list with guaranteed names/distances
   async saveClub(club: { name: string; avg_distance: number }) {
-    console.log('[Supabase] Saving club:', club);
+    // Upsert: insert or update distance if club name already exists
+    const { data, error } = await supabase
+      .from('clubs')
+      .upsert({
+        name: club.name,
+        avg_distance: club.avg_distance,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'name' })
+      .select();
 
-    try {
-      // Try insert first
-      const { data, error } = await supabase
-        .from('clubs')
-        .insert([{
-          name: club.name,
-          avg_distance: club.avg_distance
-        }])
-        .select();
-
-      // Handle different error cases
-      if (error) {
-        // 23505 = unique violation (duplicate key)
-        // We'll treat this as success since the club already exists
-        if (error.code === '23505' || error.code === 'PGRST204') {
-          console.log('[Supabase] Club already exists:', club.name);
-          return { name: club.name, avg_distance: club.avg_distance };
-        }
-        console.error('[Supabase] Insert error:', error);
-        throw error;
-      }
-
-      console.log('[Supabase] Club inserted:', data);
-      return data?.[0];
-    } catch (error: any) {
-      // Catch UNIQUE constraint violations during insert
-      if (error?.code === '23505' || error?.message?.includes('duplicate')) {
-        console.log('[Supabase] Club already exists (caught):', club.name);
-        return { name: club.name, avg_distance: club.avg_distance };
-      }
+    if (error) {
       console.error('[Supabase] saveClub error:', error);
       throw error;
     }
+    return data?.[0];
   },
 
   async getClubs() {

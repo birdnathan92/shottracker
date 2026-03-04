@@ -318,11 +318,19 @@ export default function App() {
         // Supabase clubs are just reference data to prevent duplicate entries.
         // User's bag is the source of truth - stored in localStorage and synced to Supabase.
 
-        // Load drives
+        // Load drives - map flat DB fields to nested Position objects
         const drivesFromSupabase = await supabaseDb.getDrives();
         if (drivesFromSupabase && drivesFromSupabase.length > 0) {
-          setHistory(drivesFromSupabase);
-          localStorage.setItem('golf_drive_history', JSON.stringify(drivesFromSupabase));
+          const mapped = drivesFromSupabase.map((d: any) => ({
+            id: d.id,
+            start: { lat: d.start_lat, lng: d.start_lng, accuracy: d.start_accuracy || 0, timestamp: d.timestamp },
+            end: { lat: d.end_lat, lng: d.end_lng, accuracy: d.end_accuracy || 0, timestamp: d.timestamp },
+            distance: d.distance,
+            club: d.club,
+            timestamp: d.timestamp,
+          }));
+          setHistory(mapped);
+          localStorage.setItem('golf_drive_history', JSON.stringify(mapped));
         }
 
         setSyncStatus('connected');
