@@ -500,21 +500,24 @@ export default function App() {
       setHistory([newDrive, ...history]);
 
       // Check if this is an approach shot (has remaining distance recorded)
-      const holeDistance = courseName ? getCurrentHoleDistance() : null;
-      if (holeDistance && remainingDistance && remainingDistance > 0 && distance < remainingDistance) {
-        // This is an approach shot
+      // Note: getCurrentHoleDistance() returns YARDS, distance (from GPS) is in METERS
+      const holeDistanceYards = courseName ? getCurrentHoleDistance() : null;
+      const driveDistanceYards = distance * 1.09361; // convert meters → yards
+
+      if (holeDistanceYards && remainingDistance && remainingDistance > 0 && driveDistanceYards < remainingDistance) {
+        // This is an approach shot — remaining distance was already set in yards
         const approachClub = bag.find(c => c.id === selectedApproachClubId)?.name || 'Unknown';
         const newApproach: ApproachShot = {
           holeNumber: currentHole,
-          distance,
+          distance: driveDistanceYards, // store in yards for consistency
           club: approachClub,
           timestamp: Date.now(),
         };
         setApproachShots([...approachShots, newApproach]);
-        setRemainingDistance(null);
-      } else if (holeDistance) {
-        // This is a tee shot, calculate remaining distance
-        setRemainingDistance(Math.max(0, holeDistance - distance));
+        setRemainingDistance(Math.max(0, remainingDistance - driveDistanceYards));
+      } else if (holeDistanceYards) {
+        // This is a tee shot, calculate remaining distance in YARDS
+        setRemainingDistance(Math.max(0, holeDistanceYards - driveDistanceYards));
       }
 
       setStartPos(null);
@@ -527,9 +530,17 @@ export default function App() {
     setIsTracking(false);
   };
 
+  // Returns the hole distance in YARDS (course data is stored in yards)
   const getCurrentHoleDistance = (): number => {
+    // First check if distance is stored in holeStats (set by applyCourse)
+    const statsDistance = holeStats[currentHole]?.distance;
+    if (statsDistance && statsDistance > 0) return statsDistance;
+
+    // Fallback: look up from courses array
     if (!courseName) return 0;
-    const course = courses.find(c => c.name === courseName);
+    // courseName may include tee box suffix like " (Blue)", strip it for matching
+    const baseCourseName = courseName.replace(/\s*\(.*\)$/, '');
+    const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
     if (!course || !course.holes[currentHole - 1]) return 0;
     return course.holes[currentHole - 1].distance;
   };
@@ -629,13 +640,11 @@ export default function App() {
     setRemainingDistance(null);
   };
 
-  // Auto-suggest approach shot club based on distance to green
-  const suggestApproachClub = (distanceInMeters: number): string | null => {
+  // Auto-suggest approach shot club based on distance to green (in yards)
+  const suggestApproachClub = (distanceYards: number): string | null => {
     if (bag.length === 0) return null;
 
-    // Convert distance to same unit as club distances for comparison
-    const distanceYards = distanceInMeters * 1.09361;
-
+    // remainingDistance is now in yards, same unit as club avgDistance
     // Find club with avg distance closest to but not exceeding the remaining distance
     let bestClub: typeof bag[0] | null = null;
     let smallestDifference = Infinity;
@@ -1284,7 +1293,7 @@ Requirements:
                   <span className="text-4xl font-black text-stone-800">#{currentHole}</span>
                   <div className="text-right">
                     <p className="text-xs font-bold text-stone-500 uppercase">Par {currentHoleData.par}</p>
-                    <p className="text-xs font-bold text-stone-400">{Math.round(unit === 'yards' ? getCurrentHoleDistance() * 1.09361 : getCurrentHoleDistance())} {unit.toUpperCase()}</p>
+                    <p className="text-xs font-bold text-stone-400">{Math.round(unit === 'yards' ? getCurrentHoleDistance() : getCurrentHoleDistance() * 0.9144)} {unit.toUpperCase()}</p>
                   </div>
                 </div>
               </div>
@@ -1553,26 +1562,26 @@ Requirements:
                       <motion.div
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        className="bg-emerald-50 border border-emerald-100 p-2 rounded-xl text-center"
+                        className="flex gap-2"
                       >
-                        <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest">Last Drive</p>
-                        <p className="text-2xl font-black text-emerald-700">
-                          {Math.round(unit === 'yards' ? lastDriveDistance * 1.09361 : lastDriveDistance)}
-                          <span className="text-sm ml-1">{unit}</span>
-                        </p>
-                      </motion.div>
-                    )}
-                    {remainingDistance !== null && remainingDistance > 0 && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -5 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="bg-blue-50 border border-blue-100 p-2 rounded-xl text-center"
-                      >
-                        <p className="text-[9px] font-bold text-blue-600 uppercase tracking-widest">Distance to Green</p>
-                        <p className="text-2xl font-black text-blue-700">
-                          {Math.round(unit === 'yards' ? remainingDistance * 1.09361 : remainingDistance)}
-                          <span className="text-sm ml-1">{unit}</span>
-                        </p>
+                        {/* Last Drive */}
+                        <div className={`bg-emerald-50 border border-emerald-100 p-2 rounded-xl text-center ${remainingDistance !== null && remainingDistance > 0 ? 'flex-1' : 'w-full'}`}>
+                          <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest">Last Shot</p>
+                          <p className="text-2xl font-black text-emerald-700">
+                            {Math.round(unit === 'yards' ? lastDriveDistance * 1.09361 : lastDriveDistance)}
+                            <span className="text-sm ml-1">{unit}</span>
+                          </p>
+                        </div>
+                        {/* Approach / Remaining Distance - same row */}
+                        {remainingDistance !== null && remainingDistance > 0 && (
+                          <div className="flex-1 bg-blue-50 border border-blue-100 p-2 rounded-xl text-center">
+                            <p className="text-[9px] font-bold text-blue-600 uppercase tracking-widest">To Green</p>
+                            <p className="text-2xl font-black text-blue-700">
+                              {Math.round(unit === 'yards' ? remainingDistance : remainingDistance * 0.9144)}
+                              <span className="text-sm ml-1">{unit}</span>
+                            </p>
+                          </div>
+                        )}
                       </motion.div>
                     )}
                     <button
@@ -1585,20 +1594,51 @@ Requirements:
                     </button>
                   </>
                 ) : (
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleMarkBall}
-                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/10 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
-                    >
-                      <CheckCircle2 size={18} />
-                      Mark Ball
-                    </button>
-                    <button
-                      onClick={handleReset}
-                      className="bg-white hover:bg-stone-50 text-stone-500 font-semibold py-3 px-4 rounded-xl border border-stone-200 transition-all active:scale-95 text-sm"
-                    >
-                      <RotateCcw size={16} />
-                    </button>
+                  <div className="space-y-2">
+                    {/* Live distance while tracking */}
+                    {liveDistance > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="flex gap-2"
+                      >
+                        <div className={`bg-emerald-50 border border-emerald-100 p-2 rounded-xl text-center ${getCurrentHoleDistance() > 0 ? 'flex-1' : 'w-full'}`}>
+                          <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest">Current Shot</p>
+                          <p className="text-2xl font-black text-emerald-700">
+                            {formatDistance(liveDistance, unit)}
+                          </p>
+                        </div>
+                        {getCurrentHoleDistance() > 0 && (
+                          <div className="flex-1 bg-blue-50 border border-blue-100 p-2 rounded-xl text-center">
+                            <p className="text-[9px] font-bold text-blue-600 uppercase tracking-widest">To Green</p>
+                            <p className="text-2xl font-black text-blue-700">
+                              {(() => {
+                                const holeYards = getCurrentHoleDistance();
+                                const shotYards = liveDistance * 1.09361;
+                                const remaining = Math.max(0, (remainingDistance !== null && remainingDistance > 0 ? remainingDistance : holeYards) - shotYards);
+                                return Math.round(unit === 'yards' ? remaining : remaining * 0.9144);
+                              })()}
+                              <span className="text-sm ml-1">{unit}</span>
+                            </p>
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleMarkBall}
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/10 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
+                      >
+                        <CheckCircle2 size={18} />
+                        Mark Ball
+                      </button>
+                      <button
+                        onClick={handleReset}
+                        className="bg-white hover:bg-stone-50 text-stone-500 font-semibold py-3 px-4 rounded-xl border border-stone-200 transition-all active:scale-95 text-sm"
+                      >
+                        <RotateCcw size={16} />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1742,7 +1782,7 @@ Requirements:
                         { label: 'Missed Green: Right', value: formatPct(approachRight, holesPlayed) },
                         { label: 'Missed Green: Short', value: formatPct(approachShort, holesPlayed) },
                         { label: 'Missed Green: Long', value: formatPct(approachLong, holesPlayed) },
-                        { label: 'Avg Approach Distance', value: `${Math.round(unit === 'yards' ? avgApproachDistance * 1.09361 : avgApproachDistance)} ${unit}` },
+                        { label: 'Avg Approach Distance', value: `${Math.round(unit === 'yards' ? avgApproachDistance : avgApproachDistance * 0.9144)} ${unit}` },
                         { label: 'Most Used Approach Club', value: mostUsedApproachClub },
                       ].map((row, i) => (
                         <tr key={i}>
@@ -1828,7 +1868,7 @@ Requirements:
                             <td className="px-4 py-3 font-bold text-stone-700">#{shot.holeNumber}</td>
                             <td className="px-4 py-3 font-medium text-stone-600">{shot.club}</td>
                             <td className="px-4 py-3 text-right font-bold text-blue-600">
-                              {Math.round(unit === 'yards' ? shot.distance * 1.09361 : shot.distance)} {unit}
+                              {Math.round(unit === 'yards' ? shot.distance : shot.distance * 0.9144)} {unit}
                             </td>
                           </tr>
                         ))}
