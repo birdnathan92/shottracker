@@ -1,21 +1,16 @@
 -- ============================================================================
--- GOLF TRACKER - FINAL SUPABASE SETUP
+-- GOLF TRACKER - SUPABASE SETUP (SAFE TO RE-RUN)
 -- ============================================================================
--- Run this ENTIRE script in Supabase SQL Editor
--- This is the ONLY SQL file you need to run - ignore all other supabase-*.sql files
+-- Run this script in Supabase SQL Editor.
+-- It is SAFE to run multiple times — it will NOT delete existing data.
+-- It only creates tables/indexes/policies if they don't already exist.
+-- This is the ONLY SQL file you need to run — ignore all other supabase-*.sql files.
 -- ============================================================================
-
--- Drop and recreate ALL tables to ensure clean schema
-DROP TABLE IF EXISTS drives CASCADE;
-DROP TABLE IF EXISTS hole_stats CASCADE;
-DROP TABLE IF EXISTS rounds CASCADE;
-DROP TABLE IF EXISTS courses CASCADE;
-DROP TABLE IF EXISTS clubs CASCADE;
 
 -- ============================================================================
 -- CLUBS TABLE
 -- ============================================================================
-CREATE TABLE clubs (
+CREATE TABLE IF NOT EXISTS clubs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL UNIQUE,
   avg_distance DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -23,14 +18,18 @@ CREATE TABLE clubs (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_clubs_name ON clubs(name);
+CREATE INDEX IF NOT EXISTS idx_clubs_name ON clubs(name);
 ALTER TABLE clubs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all access to clubs" ON clubs FOR ALL USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'clubs' AND policyname = 'Allow all access to clubs') THEN
+    CREATE POLICY "Allow all access to clubs" ON clubs FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
 
 -- ============================================================================
 -- COURSES TABLE
 -- ============================================================================
-CREATE TABLE courses (
+CREATE TABLE IF NOT EXISTS courses (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   location TEXT,
@@ -39,14 +38,18 @@ CREATE TABLE courses (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_courses_name ON courses(name);
+CREATE INDEX IF NOT EXISTS idx_courses_name ON courses(name);
 ALTER TABLE courses ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all access to courses" ON courses FOR ALL USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'courses' AND policyname = 'Allow all access to courses') THEN
+    CREATE POLICY "Allow all access to courses" ON courses FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
 
 -- ============================================================================
 -- ROUNDS TABLE
 -- ============================================================================
-CREATE TABLE rounds (
+CREATE TABLE IF NOT EXISTS rounds (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   course_name TEXT NOT NULL,
   date BIGINT NOT NULL,
@@ -59,15 +62,19 @@ CREATE TABLE rounds (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_rounds_date ON rounds(date);
-CREATE INDEX idx_rounds_course_name ON rounds(course_name);
+CREATE INDEX IF NOT EXISTS idx_rounds_date ON rounds(date);
+CREATE INDEX IF NOT EXISTS idx_rounds_course_name ON rounds(course_name);
 ALTER TABLE rounds ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all access to rounds" ON rounds FOR ALL USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'rounds' AND policyname = 'Allow all access to rounds') THEN
+    CREATE POLICY "Allow all access to rounds" ON rounds FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
 
 -- ============================================================================
 -- DRIVES TABLE
 -- ============================================================================
-CREATE TABLE drives (
+CREATE TABLE IF NOT EXISTS drives (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   round_id UUID REFERENCES rounds(id) ON DELETE CASCADE,
   start_lat DOUBLE PRECISION NOT NULL,
@@ -82,15 +89,19 @@ CREATE TABLE drives (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_drives_round_id ON drives(round_id);
-CREATE INDEX idx_drives_timestamp ON drives(timestamp);
+CREATE INDEX IF NOT EXISTS idx_drives_round_id ON drives(round_id);
+CREATE INDEX IF NOT EXISTS idx_drives_timestamp ON drives(timestamp);
 ALTER TABLE drives ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all access to drives" ON drives FOR ALL USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'drives' AND policyname = 'Allow all access to drives') THEN
+    CREATE POLICY "Allow all access to drives" ON drives FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
 
 -- ============================================================================
 -- HOLE_STATS TABLE
 -- ============================================================================
-CREATE TABLE hole_stats (
+CREATE TABLE IF NOT EXISTS hole_stats (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   round_id UUID NOT NULL REFERENCES rounds(id) ON DELETE CASCADE,
   hole_number INTEGER NOT NULL,
@@ -108,12 +119,16 @@ CREATE TABLE hole_stats (
   UNIQUE(round_id, hole_number)
 );
 
-CREATE INDEX idx_hole_stats_round_id ON hole_stats(round_id);
+CREATE INDEX IF NOT EXISTS idx_hole_stats_round_id ON hole_stats(round_id);
 ALTER TABLE hole_stats ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow all access to hole_stats" ON hole_stats FOR ALL USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'hole_stats' AND policyname = 'Allow all access to hole_stats') THEN
+    CREATE POLICY "Allow all access to hole_stats" ON hole_stats FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
 
 -- ============================================================================
 -- SETUP COMPLETE
 -- ============================================================================
--- All tables have been created with proper schemas and RLS policies.
--- The app is now ready to use with Supabase!
+-- All tables created (if they didn't exist) with proper schemas and RLS policies.
+-- Existing data is preserved. Safe to re-run at any time.
