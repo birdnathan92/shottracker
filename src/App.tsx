@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import { supabaseDb } from './supabaseClient';
 import { isSupabaseAvailable } from './useSupabaseSync';
+import { calculateHoleSG, calculateRoundSG, formatSG, sgColor, sgBgColor } from './strokesGainedCalc';
 import {
   MapPin,
   Pencil,
@@ -90,6 +91,7 @@ interface HoleStats {
   approachAccuracy: 'left' | 'right' | 'short' | 'long' | 'center' | null;
   par: number;
   distance?: number;
+  driveDistance?: number;    // tee shot distance in yards (from GPS), for strokes gained
 }
 
 interface CourseHole {
@@ -528,6 +530,11 @@ export default function App() {
       } else if (holeDistanceYards) {
         // This is a tee shot, calculate remaining distance in YARDS
         setRemainingDistance(Math.max(0, holeDistanceYards - driveDistanceYards));
+        // Store drive distance in holeStats for strokes gained calculation
+        setHoleStats(prev => ({
+          ...prev,
+          [currentHole]: { ...prev[currentHole], driveDistance: driveDistanceYards }
+        }));
       }
 
       setStartPos(null);
@@ -1293,6 +1300,18 @@ Requirements:
                     <p className="text-xs font-bold text-stone-500 uppercase">Par {currentHoleData.par}</p>
                     <p className="text-xs font-bold text-stone-400">{Math.round(unit === 'yards' ? getCurrentHoleDistance() : getCurrentHoleDistance() * 0.9144)} {unit.toUpperCase()}</p>
                   </div>
+                  {/* Live SG badge for current hole */}
+                  {(() => {
+                    const holeDistance = getCurrentHoleDistance();
+                    if (!holeDistance || holeDistance <= 0 || !currentHoleData.score) return null;
+                    const sg = calculateHoleSG({ ...currentHoleData, distance: holeDistance });
+                    if (sg.sgTotal === null) return null;
+                    return (
+                      <span className={`text-xs font-bold px-2 py-1 rounded-lg ${sgBgColor(sg.sgTotal)} ${sgColor(sg.sgTotal)}`}>
+                        SG: {formatSG(sg.sgTotal)}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -1792,6 +1811,53 @@ Requirements:
                   </tbody>
                 </table>
               </div>
+
+              {/* Strokes Gained Averages */}
+              {rounds.length > 0 && (() => {
+                const roundSGs = rounds.map(r => calculateRoundSG(r.holeStats));
+                const roundsWithSG = roundSGs.filter(sg => sg.holesCalculated > 0);
+                if (roundsWithSG.length === 0) return null;
+
+                const avgSGTotal = roundsWithSG.reduce((sum, sg) => sum + sg.sgTotal, 0) / roundsWithSG.length;
+                const roundsWithOTT = roundSGs.filter(sg => sg.ottHolesCalculated > 0);
+                const avgSGOTT = roundsWithOTT.length > 0
+                  ? roundsWithOTT.reduce((sum, sg) => sum + sg.sgOffTheTee, 0) / roundsWithOTT.length
+                  : null;
+                const avgSGApp = roundsWithOTT.length > 0
+                  ? roundsWithOTT.reduce((sum, sg) => sum + sg.sgApproach, 0) / roundsWithOTT.length
+                  : null;
+
+                return (
+                  <div className="bg-gradient-to-br from-stone-800 to-stone-900 rounded-2xl p-5 text-white">
+                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-3">
+                      Strokes Gained vs PGA Tour (avg/round)
+                    </h3>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="text-center">
+                        <p className="text-[10px] font-bold text-stone-400 uppercase">Total</p>
+                        <p className={`text-xl font-black ${avgSGTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {formatSG(avgSGTotal)}
+                        </p>
+                        <p className="text-[9px] text-stone-500">{roundsWithSG.length} rounds</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[10px] font-bold text-stone-400 uppercase">Off Tee</p>
+                        <p className={`text-xl font-black ${avgSGOTT !== null ? (avgSGOTT >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-stone-500'}`}>
+                          {avgSGOTT !== null ? formatSG(avgSGOTT) : '—'}
+                        </p>
+                        <p className="text-[9px] text-stone-500">{roundsWithOTT.length} rounds</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[10px] font-bold text-stone-400 uppercase">Approach</p>
+                        <p className={`text-xl font-black ${avgSGApp !== null ? (avgSGApp >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-stone-500'}`}>
+                          {avgSGApp !== null ? formatSG(avgSGApp) : '—'}
+                        </p>
+                        <p className="text-[9px] text-stone-500">{roundsWithOTT.length} rounds</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Round History Table */}
               <div className="space-y-4">
@@ -2450,8 +2516,43 @@ Requirements:
                 </button>
               </div>
 
-              {/* Scorecard */}
-              <div className="overflow-y-auto flex-1 px-6 py-4">
+              {/* Scorecard & Strokes Gained */}
+              <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+                {/* Strokes Gained Summary Card */}
+                {(() => {
+                  const roundSG = calculateRoundSG(selectedRound.holeStats);
+                  if (roundSG.holesCalculated === 0) return null;
+                  return (
+                    <div className="bg-gradient-to-br from-stone-800 to-stone-900 rounded-2xl p-5 text-white">
+                      <h3 className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-3">Strokes Gained vs PGA Tour</h3>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="text-center">
+                          <p className="text-[10px] font-bold text-stone-400 uppercase">Total</p>
+                          <p className={`text-xl font-black ${roundSG.sgTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {formatSG(roundSG.sgTotal)}
+                          </p>
+                          <p className="text-[9px] text-stone-500">{roundSG.holesCalculated} holes</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] font-bold text-stone-400 uppercase">Off Tee</p>
+                          <p className={`text-xl font-black ${roundSG.ottHolesCalculated > 0 ? (roundSG.sgOffTheTee >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-stone-500'}`}>
+                            {roundSG.ottHolesCalculated > 0 ? formatSG(roundSG.sgOffTheTee) : '—'}
+                          </p>
+                          <p className="text-[9px] text-stone-500">{roundSG.ottHolesCalculated} holes</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] font-bold text-stone-400 uppercase">Approach</p>
+                          <p className={`text-xl font-black ${roundSG.ottHolesCalculated > 0 ? (roundSG.sgApproach >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-stone-500'}`}>
+                            {roundSG.ottHolesCalculated > 0 ? formatSG(roundSG.sgApproach) : '—'}
+                          </p>
+                          <p className="text-[9px] text-stone-500">{roundSG.ottHolesCalculated} holes</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Per-Hole Scorecard */}
                 <div className="bg-stone-50 rounded-2xl p-6 space-y-3">
                   {Array.from({ length: 18 }, (_, i) => {
                     const holeNum = i + 1;
@@ -2459,6 +2560,7 @@ Requirements:
                     if (!stat) return null;
 
                     const diff = stat.score - stat.par;
+                    const holeSG = calculateHoleSG(stat);
                     return (
                       <div key={holeNum} className="bg-white rounded-xl p-4 border border-stone-100">
                         <div className="grid grid-cols-2 gap-4">
@@ -2468,9 +2570,16 @@ Requirements:
                           </div>
                           <div className="flex items-center justify-between">
                             <span className="text-sm font-bold text-stone-500">Score</span>
-                            <span className={`text-lg font-bold ${diff <= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                              {stat.score} ({diff > 0 ? '+' : ''}{diff})
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-lg font-bold ${diff <= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {stat.score} ({diff > 0 ? '+' : ''}{diff})
+                              </span>
+                              {holeSG.sgTotal !== null && (
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${sgBgColor(holeSG.sgTotal)} ${sgColor(holeSG.sgTotal)}`}>
+                                  SG:{formatSG(holeSG.sgTotal)}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
 
@@ -2509,6 +2618,22 @@ Requirements:
                             <span className="px-2 py-1 rounded-lg bg-cyan-100 text-cyan-700">
                               Approach: {stat.approachAccuracy}
                             </span>
+                          </div>
+                        )}
+
+                        {/* Strokes Gained breakdown for this hole */}
+                        {(holeSG.sgOffTheTee !== null || holeSG.sgApproach !== null) && (
+                          <div className="mt-2 flex gap-2 text-[10px] font-bold">
+                            {holeSG.sgOffTheTee !== null && (
+                              <span className={`px-2 py-1 rounded-lg ${sgBgColor(holeSG.sgOffTheTee)} ${sgColor(holeSG.sgOffTheTee)}`}>
+                                OTT: {formatSG(holeSG.sgOffTheTee)}
+                              </span>
+                            )}
+                            {holeSG.sgApproach !== null && (
+                              <span className={`px-2 py-1 rounded-lg ${sgBgColor(holeSG.sgApproach)} ${sgColor(holeSG.sgApproach)}`}>
+                                APP: {formatSG(holeSG.sgApproach)}
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
