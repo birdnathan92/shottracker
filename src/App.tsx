@@ -232,16 +232,26 @@ interface ApproachShot {
   timestamp: number;
 }
 
-// Swipeable drive card component for touch-friendly delete
+// Swipeable drive card component — swipe reveals delete button, must tap to confirm
 const SwipeableDriveCard: React.FC<{ drive: Drive; unit: Unit; onDelete: (id: string) => void | Promise<void> }> = ({ drive, unit, onDelete }) => {
   const x = useMotionValue(0);
+  const [isDeleteRevealed, setIsDeleteRevealed] = useState(false);
   const deleteOpacity = useTransform(x, [-100, -50], [1, 0]);
 
   return (
     <div className="relative overflow-hidden rounded-2xl">
-      {/* Delete zone behind */}
-      <motion.div style={{ opacity: deleteOpacity }} className="absolute right-0 top-0 bottom-0 flex items-center justify-center bg-red-500 text-white px-6 rounded-2xl">
-        <Trash2 size={20} />
+      {/* Delete zone behind — tappable button */}
+      <motion.div
+        style={{ opacity: deleteOpacity }}
+        className="absolute right-0 top-0 bottom-0 flex items-center justify-end rounded-2xl overflow-hidden"
+      >
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(drive.id); }}
+          className="h-full px-6 bg-red-500 text-white font-bold text-sm flex items-center gap-2 hover:bg-red-600 transition-colors"
+        >
+          <Trash2 size={16} />
+          Delete
+        </button>
       </motion.div>
       {/* Swipeable card */}
       <motion.div
@@ -249,8 +259,17 @@ const SwipeableDriveCard: React.FC<{ drive: Drive; unit: Unit; onDelete: (id: st
         drag="x"
         dragConstraints={{ left: -100, right: 0 }}
         dragElastic={0.1}
-        onDragEnd={(_, info) => { if (info.offset.x < -80) onDelete(drive.id); }}
-        className="bg-white p-5 rounded-2xl border border-stone-100 shadow-sm flex items-center justify-between group relative z-10"
+        onDragEnd={(_, info) => {
+          if (info.offset.x < -80) {
+            setIsDeleteRevealed(true);
+          } else {
+            setIsDeleteRevealed(false);
+          }
+        }}
+        animate={{ x: isDeleteRevealed ? -100 : 0 }}
+        transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+        onClick={() => { if (isDeleteRevealed) setIsDeleteRevealed(false); }}
+        className="bg-white p-5 rounded-2xl border border-stone-100 shadow-sm flex items-center justify-between relative z-10"
       >
         <div className="space-y-1">
           <div className="flex items-center gap-2">
@@ -261,9 +280,6 @@ const SwipeableDriveCard: React.FC<{ drive: Drive; unit: Unit; onDelete: (id: st
             {new Date(drive.timestamp).toLocaleDateString()} at {new Date(drive.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </p>
         </div>
-        <button onClick={() => onDelete(drive.id)} className="p-2 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100">
-          <Trash2 size={18} />
-        </button>
       </motion.div>
     </div>
   );
@@ -305,6 +321,7 @@ export default function App() {
   const [approachDistanceOverride, setApproachDistanceOverride] = useState<number | null>(null);
   const [isEditingRound, setIsEditingRound] = useState(false);
   const [editingRoundStats, setEditingRoundStats] = useState<Record<number, HoleStats>>({});
+  const [expandedClubs, setExpandedClubs] = useState<Set<string>>(new Set());
   const [teeBoxSelectionCourse, setTeeBoxSelectionCourse] = useState<Course | null>(null);
   const [activeSlope, setActiveSlope] = useState<number>(0);
   const [activeCourseRating, setActiveCourseRating] = useState<number>(0);
@@ -647,6 +664,32 @@ export default function App() {
     }
     // Then delete from local state
     setHistory(history.filter(d => d.id !== id));
+  };
+
+  // Grouped drive data for history view — group by club, sort by avg distance desc
+  const groupedDrives = useMemo(() => {
+    const groups: Record<string, Drive[]> = {};
+    for (const drive of history) {
+      if (!groups[drive.club]) groups[drive.club] = [];
+      groups[drive.club].push(drive);
+    }
+    return Object.entries(groups)
+      .map(([club, drives]) => ({
+        club,
+        count: drives.length,
+        avgDistance: drives.reduce((sum, d) => sum + d.distance, 0) / drives.length,
+        drives: drives.sort((a, b) => b.timestamp - a.timestamp),
+      }))
+      .sort((a, b) => b.avgDistance - a.avgDistance);
+  }, [history]);
+
+  const toggleClubExpand = (club: string) => {
+    setExpandedClubs(prev => {
+      const next = new Set(prev);
+      if (next.has(club)) next.delete(club);
+      else next.add(club);
+      return next;
+    });
   };
 
   // Score Handlers
@@ -1766,6 +1809,24 @@ Requirements:
                             const val = parseInt(e.target.value);
                             setApproachDistanceOverride(val);
                             setRemainingDistance(val);
+
+                            // Calculate drive distance from slider and update SG
+                            const holeDistanceYards = getCurrentHoleDistance();
+                            if (holeDistanceYards > 0) {
+                              const calculatedDriveYards = Math.max(0, holeDistanceYards - val);
+                              // Update holeStats → triggers SG recalc via the live SG badge
+                              setHoleStats(prev => ({
+                                ...prev,
+                                [currentHole]: {
+                                  ...prev[currentHole],
+                                  driveDistance: calculatedDriveYards
+                                }
+                              }));
+                              // Always update Last Shot bubble: Total Hole Distance - Approach = Last Shot
+                              if (calculatedDriveYards > 0) {
+                                setLastDriveDistance(calculatedDriveYards / 1.09361); // yards → meters
+                              }
+                            }
                           }}
                           className="w-full h-2 bg-stone-100 rounded-lg appearance-none cursor-pointer accent-blue-600"
                         />
@@ -1774,6 +1835,16 @@ Requirements:
                           <span>350 yds</span>
                         </div>
                       </div>
+                    )}
+                    {/* Manual approach distance entry when no GPS measurement */}
+                    {lastDriveDistance === null && remainingDistance === null && getCurrentHoleDistance() > 0 && (
+                      <button
+                        onClick={() => setRemainingDistance(getCurrentHoleDistance())}
+                        className="w-full bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold py-2.5 rounded-xl border border-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
+                      >
+                        <Minus size={16} />
+                        Set Approach Distance
+                      </button>
                     )}
                     <button
                     id="measure-btn"
@@ -2134,8 +2205,51 @@ Requirements:
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {history.map((drive) => (
-                    <SwipeableDriveCard key={drive.id} drive={drive} unit={unit} onDelete={deleteDrive} />
+                  {groupedDrives.map(({ club, count, avgDistance, drives }) => (
+                    <div key={club} className="bg-white rounded-2xl border border-stone-100 shadow-sm overflow-hidden">
+                      {/* Club summary header — clickable to expand */}
+                      <button
+                        onClick={() => toggleClubExpand(club)}
+                        className="w-full flex items-center justify-between p-4 hover:bg-stone-50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded uppercase tracking-wider">
+                            {club}
+                          </span>
+                          <span className="text-sm text-stone-400 font-medium">
+                            {count} {count === 1 ? 'drive' : 'drives'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-lg font-bold text-stone-700">
+                            {formatDistance(avgDistance, unit)}
+                          </span>
+                          {expandedClubs.has(club) ? (
+                            <ChevronUp size={18} className="text-stone-400" />
+                          ) : (
+                            <ChevronDown size={18} className="text-stone-400" />
+                          )}
+                        </div>
+                      </button>
+                      {/* Expanded individual drives */}
+                      <AnimatePresence>
+                        {expandedClubs.has(club) && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="border-t border-stone-100">
+                              {drives.map(drive => (
+                                <SwipeableDriveCard key={drive.id} drive={drive} unit={unit} onDelete={deleteDrive} />
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
                   ))}
                 </div>
               )}
