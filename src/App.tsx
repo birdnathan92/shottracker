@@ -307,7 +307,7 @@ export default function App() {
   const [holeStats, setHoleStats] = useState<Record<number, HoleStats>>(() => loadLocal('golf_hole_stats', {
     1: { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 }
   }));
-  const [approachShots, setApproachShots] = useState<ApproachShot[]>(() => loadLocal('golf_approach_shots', []));
+  const [approachShots, setApproachShots] = useState<ApproachShot[]>([]);
 
   const [selectedClubId, setSelectedClubId] = useState<string>(DEFAULT_CLUBS[0].id);
   const [isBagModalOpen, setIsBagModalOpen] = useState(false);
@@ -691,6 +691,44 @@ export default function App() {
       return next;
     });
   };
+
+  // GIR% by approach club — computed from all rounds + current round
+  const girByClub = useMemo(() => {
+    const clubData: Record<string, { attempts: number; hits: number }> = {};
+
+    // From completed rounds
+    for (const round of rounds) {
+      if (!round.holeStats) continue;
+      for (const [, rawStats] of Object.entries(round.holeStats)) {
+        const stats = rawStats as HoleStats;
+        if (stats.approachClub && stats.gir !== null && stats.gir !== undefined) {
+          if (!clubData[stats.approachClub]) clubData[stats.approachClub] = { attempts: 0, hits: 0 };
+          clubData[stats.approachClub].attempts++;
+          if (stats.gir) clubData[stats.approachClub].hits++;
+        }
+      }
+    }
+
+    // From current round in progress
+    if (isRoundActive) {
+      for (const [, stats] of Object.entries(holeStats) as [string, HoleStats][]) {
+        if (stats.approachClub && stats.gir !== null && stats.gir !== undefined) {
+          if (!clubData[stats.approachClub]) clubData[stats.approachClub] = { attempts: 0, hits: 0 };
+          clubData[stats.approachClub].attempts++;
+          if (stats.gir) clubData[stats.approachClub].hits++;
+        }
+      }
+    }
+
+    return Object.entries(clubData)
+      .map(([club, data]) => ({
+        club,
+        attempts: data.attempts,
+        hits: data.hits,
+        girPct: data.attempts > 0 ? Math.round((data.hits / data.attempts) * 100) : 0,
+      }))
+      .sort((a, b) => b.attempts - a.attempts);
+  }, [rounds, holeStats, isRoundActive]);
 
   // Score Handlers
   const updateScore = (delta: number) => {
@@ -1999,18 +2037,6 @@ Requirements:
 
                       const formatPct = (val: number, total: number) => total > 0 ? `${Math.round((val / total) * 100)}%` : '0%';
 
-                      // Calculate approach shot stats
-                      const avgApproachDistance = approachShots.length > 0
-                        ? Math.round(approachShots.reduce((sum, shot) => sum + shot.distance, 0) / approachShots.length)
-                        : 0;
-
-                      const mostUsedApproachClub = approachShots.length > 0
-                        ? (Object.entries(approachShots.reduce((acc: Record<string, number>, shot) => {
-                            acc[shot.club] = (acc[shot.club] || 0) + 1;
-                            return acc;
-                          }, {} as Record<string, number>)) as [string, number][]).sort((a, b) => b[1] - a[1])[0]?.[0] || '--'
-                        : '--';
-
                       // Calculate putting stats
                       const totalPutts = holes.reduce((sum, h) => sum + h.putts, 0);
                       const avgPuttsPerHole = holesPlayed > 0 ? (totalPutts / holesPlayed).toFixed(1) : '0';
@@ -2046,8 +2072,6 @@ Requirements:
                         { label: 'Missed Green: Right', value: formatPct(approachRight, holesPlayed) },
                         { label: 'Missed Green: Short', value: formatPct(approachShort, holesPlayed) },
                         { label: 'Missed Green: Long', value: formatPct(approachLong, holesPlayed) },
-                        { label: 'Avg Approach Distance', value: `${Math.round(unit === 'yards' ? avgApproachDistance : avgApproachDistance * 0.9144)} ${unit}` },
-                        { label: 'Most Used Approach Club', value: mostUsedApproachClub },
                       ].map((row, i) => (
                         <tr key={i}>
                           <td className="px-4 py-3 font-medium text-stone-600">{row.label}</td>
@@ -2156,30 +2180,36 @@ Requirements:
                 )}
               </div>
 
-              {/* Approach Shots Table */}
+              {/* GIR% by Approach Club */}
               <div className="space-y-4">
-                <h3 className="text-lg font-bold text-stone-800">Approach Shots</h3>
-                {approachShots.length === 0 ? (
+                <h3 className="text-lg font-bold text-stone-800">GIR by Club</h3>
+                {girByClub.length === 0 ? (
                   <div className="bg-white p-6 rounded-2xl text-center border border-dashed border-stone-200">
-                    <p className="text-stone-400 text-sm">No approach shots recorded yet.</p>
+                    <p className="text-stone-400 text-sm">No approach club data yet.</p>
                   </div>
                 ) : (
                   <div className="bg-white rounded-2xl border border-stone-100 shadow-sm overflow-hidden">
                     <table className="w-full text-left text-sm">
                       <thead>
                         <tr className="bg-stone-50 border-b border-stone-100">
-                          <th className="px-4 py-3 font-bold text-stone-400 uppercase text-[10px] tracking-widest">Hole</th>
                           <th className="px-4 py-3 font-bold text-stone-400 uppercase text-[10px] tracking-widest">Club</th>
-                          <th className="px-4 py-3 font-bold text-stone-400 uppercase text-[10px] tracking-widest text-right">Distance</th>
+                          <th className="px-4 py-3 font-bold text-stone-400 uppercase text-[10px] tracking-widest text-center">Approaches</th>
+                          <th className="px-4 py-3 font-bold text-stone-400 uppercase text-[10px] tracking-widest text-right">GIR%</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-stone-50">
-                        {approachShots.map((shot, index) => (
-                          <tr key={index}>
-                            <td className="px-4 py-3 font-bold text-stone-700">#{shot.holeNumber}</td>
-                            <td className="px-4 py-3 font-medium text-stone-600">{shot.club}</td>
-                            <td className="px-4 py-3 text-right font-bold text-blue-600">
-                              {Math.round(unit === 'yards' ? shot.distance : shot.distance * 0.9144)} {unit}
+                        {girByClub.map((row) => (
+                          <tr key={row.club}>
+                            <td className="px-4 py-3">
+                              <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded uppercase tracking-wider">
+                                {row.club}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-center font-medium text-stone-600">{row.attempts}</td>
+                            <td className={`px-4 py-3 text-right font-bold ${
+                              row.girPct >= 50 ? 'text-emerald-600' : row.girPct >= 25 ? 'text-amber-600' : 'text-red-500'
+                            }`}>
+                              {row.girPct}%
                             </td>
                           </tr>
                         ))}
