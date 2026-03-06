@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import { supabaseDb } from './supabaseClient';
 import { isSupabaseAvailable } from './useSupabaseSync';
@@ -92,6 +92,9 @@ interface HoleStats {
   par: number;
   distance?: number;
   driveDistance?: number;    // tee shot distance in yards (from GPS), for strokes gained
+  teeClub?: string;          // club name used off the tee
+  approachClub?: string;     // club name used for approach
+  layUp?: boolean | null;    // par 5 only: did the player lay up?
 }
 
 interface CourseHole {
@@ -227,6 +230,43 @@ interface ApproachShot {
   timestamp: number;
 }
 
+// Swipeable drive card component for touch-friendly delete
+const SwipeableDriveCard: React.FC<{ drive: Drive; unit: Unit; onDelete: (id: string) => void | Promise<void> }> = ({ drive, unit, onDelete }) => {
+  const x = useMotionValue(0);
+  const deleteOpacity = useTransform(x, [-100, -50], [1, 0]);
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl">
+      {/* Delete zone behind */}
+      <motion.div style={{ opacity: deleteOpacity }} className="absolute right-0 top-0 bottom-0 flex items-center justify-center bg-red-500 text-white px-6 rounded-2xl">
+        <Trash2 size={20} />
+      </motion.div>
+      {/* Swipeable card */}
+      <motion.div
+        style={{ x }}
+        drag="x"
+        dragConstraints={{ left: -100, right: 0 }}
+        dragElastic={0.1}
+        onDragEnd={(_, info) => { if (info.offset.x < -80) onDelete(drive.id); }}
+        className="bg-white p-5 rounded-2xl border border-stone-100 shadow-sm flex items-center justify-between group relative z-10"
+      >
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <p className="text-2xl font-bold text-stone-800">{formatDistance(drive.distance, unit)}</p>
+            <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded uppercase tracking-wider">{drive.club}</span>
+          </div>
+          <p className="text-xs text-stone-400 font-medium">
+            {new Date(drive.timestamp).toLocaleDateString()} at {new Date(drive.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </p>
+        </div>
+        <button onClick={() => onDelete(drive.id)} className="p-2 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100">
+          <Trash2 size={18} />
+        </button>
+      </motion.div>
+    </div>
+  );
+};
+
 export default function App() {
   const [currentPos, setCurrentPos] = useState<Position | null>(null);
   const [startPos, setStartPos] = useState<Position | null>(null);
@@ -260,6 +300,9 @@ export default function App() {
   const [isRoundModalOpen, setIsRoundModalOpen] = useState(false);
   const [selectedApproachClubId, setSelectedApproachClubId] = useState<string>(DEFAULT_CLUBS[0].id);
   const [remainingDistance, setRemainingDistance] = useState<number | null>(null);
+  const [approachDistanceOverride, setApproachDistanceOverride] = useState<number | null>(null);
+  const [isEditingRound, setIsEditingRound] = useState(false);
+  const [editingRoundStats, setEditingRoundStats] = useState<Record<number, HoleStats>>({});
   const [teeBoxSelectionCourse, setTeeBoxSelectionCourse] = useState<Course | null>(null);
   const [activeSlope, setActiveSlope] = useState<number>(0);
   const [activeCourseRating, setActiveCourseRating] = useState<number>(0);
@@ -647,14 +690,46 @@ export default function App() {
 
   const changeHole = (delta: number) => {
     const nextHole = Math.max(1, Math.min(18, currentHole + delta));
-    if (!holeStats[nextHole]) {
-      setHoleStats(prev => ({
+
+    // Save current club selections to the current hole before navigating
+    const currentTeeClubName = bag.find(c => c.id === selectedClubId)?.name;
+    const currentApproachClubName = bag.find(c => c.id === selectedApproachClubId)?.name;
+
+    setHoleStats(prev => {
+      const updated = {
         ...prev,
-        [nextHole]: { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 }
-      }));
-    }
+        [currentHole]: {
+          ...prev[currentHole],
+          teeClub: currentTeeClubName,
+          approachClub: currentApproachClubName,
+        },
+      };
+      if (!updated[nextHole]) {
+        updated[nextHole] = { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 };
+      }
+      return updated;
+    });
+
     setCurrentHole(nextHole);
     setRemainingDistance(null);
+    setLastDriveDistance(null);
+    setApproachDistanceOverride(null);
+
+    // Restore club selections if the next hole has saved clubs, otherwise default
+    const nextHoleData = holeStats[nextHole];
+    if (nextHoleData?.teeClub) {
+      const matchingClub = bag.find(c => c.name === nextHoleData.teeClub);
+      setSelectedClubId(matchingClub?.id || bag[0]?.id || DEFAULT_CLUBS[0].id);
+    } else {
+      setSelectedClubId(bag[0]?.id || DEFAULT_CLUBS[0].id);
+    }
+
+    if (nextHoleData?.approachClub) {
+      const matchingClub = bag.find(c => c.name === nextHoleData.approachClub);
+      setSelectedApproachClubId(matchingClub?.id || bag[0]?.id || DEFAULT_CLUBS[0].id);
+    } else {
+      setSelectedApproachClubId(bag[0]?.id || DEFAULT_CLUBS[0].id);
+    }
   };
 
   // Auto-suggest approach shot club based on distance to green (in yards)
@@ -1457,6 +1532,39 @@ Requirements:
                   </div>
                 </div>
 
+                {/* Lay Up Row - Par 5 only */}
+                {currentHoleData.par === 5 && (
+                  <div className="flex items-center justify-between px-4 py-2.5">
+                    <span className="font-bold text-stone-700 text-sm">Lay Up</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => toggleStat('layUp' as any)}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                          currentHoleData.layUp === true
+                            ? 'bg-emerald-500 border-emerald-500 text-white'
+                            : currentHoleData.layUp === false
+                            ? 'bg-white border-stone-200 text-stone-300'
+                            : 'bg-stone-100 border-stone-300 text-stone-400'
+                        }`}
+                      >
+                        <Check size={20} strokeWidth={3} />
+                      </button>
+                      <button
+                        onClick={() => toggleStat('layUp' as any)}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                          currentHoleData.layUp === false
+                            ? 'bg-stone-400 border-stone-400 text-white'
+                            : currentHoleData.layUp === true
+                            ? 'bg-white border-stone-200 text-stone-300'
+                            : 'bg-stone-100 border-stone-300 text-stone-400'
+                        }`}
+                      >
+                        <X size={20} strokeWidth={3} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Sand Save Row - Check/X style with unselected state */}
                 <div className="flex items-center justify-between px-4 py-2.5">
                   <span className="font-bold text-stone-700 text-sm">Sand Save</span>
@@ -1600,6 +1708,33 @@ Requirements:
                           </div>
                         )}
                       </motion.div>
+                    )}
+                    {/* Approach Distance Override Slider */}
+                    {remainingDistance !== null && remainingDistance > 0 && !isTracking && (
+                      <div className="bg-white border border-stone-100 rounded-xl p-3 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">Approach Distance</p>
+                          <p className="text-sm font-bold text-blue-600">
+                            {Math.round(unit === 'yards' ? remainingDistance : remainingDistance * 0.9144)} {unit}
+                          </p>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={350}
+                          value={Math.round(remainingDistance)}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value);
+                            setApproachDistanceOverride(val);
+                            setRemainingDistance(val);
+                          }}
+                          className="w-full h-2 bg-stone-100 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                        />
+                        <div className="flex justify-between text-[8px] text-stone-300 font-bold">
+                          <span>0</span>
+                          <span>350 yds</span>
+                        </div>
+                      </div>
                     )}
                     <button
                       onClick={handleStartDrive}
@@ -1959,30 +2094,7 @@ Requirements:
               ) : (
                 <div className="space-y-3">
                   {history.map((drive) => (
-                    <div 
-                      key={drive.id}
-                      className="bg-white p-5 rounded-2xl border border-stone-100 shadow-sm flex items-center justify-between group"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <p className="text-2xl font-bold text-stone-800">
-                            {formatDistance(drive.distance, unit)}
-                          </p>
-                          <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded uppercase tracking-wider">
-                            {drive.club}
-                          </span>
-                        </div>
-                        <p className="text-xs text-stone-400 font-medium">
-                          {new Date(drive.timestamp).toLocaleDateString()} at {new Date(drive.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                      </div>
-                      <button 
-                        onClick={() => deleteDrive(drive.id)}
-                        className="p-2 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
+                    <SwipeableDriveCard key={drive.id} drive={drive} unit={unit} onDelete={deleteDrive} />
                   ))}
                 </div>
               )}
@@ -2491,7 +2603,7 @@ Requirements:
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsRoundModalOpen(false)}
+              onClick={() => { setIsRoundModalOpen(false); setIsEditingRound(false); }}
               className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm"
             />
 
@@ -2509,7 +2621,7 @@ Requirements:
                   <p className="text-xs text-stone-400">{new Date(selectedRound.date).toLocaleDateString()} • {selectedRound.totalScore} ({selectedRound.totalScore - selectedRound.totalPar > 0 ? '+' : ''}{selectedRound.totalScore - selectedRound.totalPar})</p>
                 </div>
                 <button
-                  onClick={() => setIsRoundModalOpen(false)}
+                  onClick={() => { setIsRoundModalOpen(false); setIsEditingRound(false); }}
                   className="p-2 hover:bg-stone-100 rounded-full transition-colors"
                 >
                   <X size={20} className="text-stone-400" />
@@ -2520,7 +2632,8 @@ Requirements:
               <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
                 {/* Strokes Gained Summary Card */}
                 {(() => {
-                  const roundSG = calculateRoundSG(selectedRound.holeStats);
+                  const displayStats = isEditingRound ? editingRoundStats : selectedRound.holeStats;
+                  const roundSG = calculateRoundSG(displayStats);
                   if (roundSG.holesCalculated === 0) return null;
                   return (
                     <div className="bg-gradient-to-br from-stone-800 to-stone-900 rounded-2xl p-5 text-white">
@@ -2552,111 +2665,193 @@ Requirements:
                   );
                 })()}
 
-                {/* Per-Hole Scorecard */}
-                <div className="bg-stone-50 rounded-2xl p-6 space-y-3">
-                  {Array.from({ length: 18 }, (_, i) => {
-                    const holeNum = i + 1;
-                    const stat = selectedRound.holeStats[holeNum];
-                    if (!stat) return null;
+                {/* Per-Hole Scorecard Table */}
+                <div className="bg-white rounded-2xl border border-stone-100 shadow-sm overflow-x-auto">
+                  <table className="w-full text-sm min-w-[580px]">
+                    <thead>
+                      <tr className="bg-stone-50 border-b border-stone-100 text-[10px] font-bold uppercase tracking-widest text-stone-400">
+                        <th className="px-2 py-2 text-left sticky left-0 bg-stone-50 z-10">Hole</th>
+                        <th className="px-2 py-2 text-center">Par</th>
+                        <th className="px-2 py-2 text-center">Score</th>
+                        <th className="px-2 py-2 text-center">+/-</th>
+                        <th className="px-2 py-2 text-center">Putts</th>
+                        <th className="px-2 py-2 text-center">FW</th>
+                        <th className="px-2 py-2 text-center">GIR</th>
+                        <th className="px-2 py-2 text-center">Up&Dn</th>
+                        <th className="px-2 py-2 text-center">SG</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-50">
+                      {Array.from({ length: 18 }, (_, i) => {
+                        const holeNum = i + 1;
+                        const displayStats = isEditingRound ? editingRoundStats : selectedRound.holeStats;
+                        const stat = displayStats[holeNum];
+                        if (!stat) return null;
 
-                    const diff = stat.score - stat.par;
-                    const holeSG = calculateHoleSG(stat);
-                    return (
-                      <div key={holeNum} className="bg-white rounded-xl p-4 border border-stone-100">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-bold text-stone-500">Hole {holeNum}</span>
-                            <span className="text-lg font-bold text-stone-800">Par {stat.par}</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-bold text-stone-500">Score</span>
-                            <div className="flex items-center gap-2">
-                              <span className={`text-lg font-bold ${diff <= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                {stat.score} ({diff > 0 ? '+' : ''}{diff})
-                              </span>
-                              {holeSG.sgTotal !== null && (
-                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${sgBgColor(holeSG.sgTotal)} ${sgColor(holeSG.sgTotal)}`}>
-                                  SG:{formatSG(holeSG.sgTotal)}
+                        const diff = stat.score - stat.par;
+                        const holeSG = calculateHoleSG(stat);
+                        const isTurnRow = holeNum === 10;
+
+                        const toggleEditBool = (field: 'fairway' | 'gir' | 'upAndDown') => {
+                          setEditingRoundStats(prev => {
+                            const current = prev[holeNum][field];
+                            const next = current === null ? true : current === true ? false : null;
+                            return { ...prev, [holeNum]: { ...prev[holeNum], [field]: next } };
+                          });
+                        };
+
+                        return (
+                          <React.Fragment key={holeNum}>
+                            {isTurnRow && (
+                              <tr className="bg-stone-100">
+                                <td colSpan={9} className="px-2 py-1 text-[9px] font-bold text-stone-400 uppercase tracking-widest">Back Nine</td>
+                              </tr>
+                            )}
+                            <tr className={`${diff < 0 ? 'bg-emerald-50/40' : diff > 0 ? 'bg-red-50/40' : ''}`}>
+                              <td className="px-2 py-1.5 font-bold text-stone-600 sticky left-0 bg-inherit z-10">{holeNum}</td>
+                              <td className="px-2 py-1.5 text-center text-stone-500">{stat.par}</td>
+                              <td className="px-2 py-1.5 text-center">
+                                {isEditingRound ? (
+                                  <input type="number" value={stat.score}
+                                    onChange={(e) => setEditingRoundStats(prev => ({ ...prev, [holeNum]: { ...prev[holeNum], score: Math.max(1, parseInt(e.target.value) || 1) } }))}
+                                    className="w-12 text-center bg-white border border-stone-200 rounded px-1 py-0.5 font-bold text-stone-800 outline-none"
+                                  />
+                                ) : (
+                                  <span className={`font-bold ${diff <= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{stat.score}</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 text-center">
+                                <span className={`text-xs font-bold ${diff < 0 ? 'text-emerald-600' : diff > 0 ? 'text-red-500' : 'text-stone-400'}`}>
+                                  {diff === 0 ? 'E' : (diff > 0 ? `+${diff}` : diff)}
                                 </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] font-bold">
-                          <div className="flex items-center gap-1">
-                            <span className={`px-2 py-1 rounded-lg ${stat.fairway ? 'bg-emerald-100 text-emerald-700' : 'bg-stone-100 text-stone-400'}`}>
-                              Fairway: {stat.fairway ? '✓' : '✗'}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className={`px-2 py-1 rounded-lg ${stat.gir ? 'bg-emerald-100 text-emerald-700' : 'bg-stone-100 text-stone-400'}`}>
-                              GIR: {stat.gir ? '✓' : '✗'}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className={`px-2 py-1 rounded-lg ${stat.putts > 0 ? 'bg-blue-100 text-blue-700' : 'bg-stone-100 text-stone-400'}`}>
-                              Putts: {stat.putts}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] font-bold">
-                          <div className={`px-2 py-1 rounded-lg ${stat.upAndDown ? 'bg-purple-100 text-purple-700' : 'bg-stone-100 text-stone-400'}`}>
-                            Scrambling: {stat.upAndDown ? '✓' : '✗'}
-                          </div>
-                          <div className={`px-2 py-1 rounded-lg ${stat.sandSave ? 'bg-amber-100 text-amber-700' : 'bg-stone-100 text-stone-400'}`}>
-                            Sand Save: {stat.sandSave ? '✓' : '✗'}
-                          </div>
-                          <div className={`px-2 py-1 rounded-lg ${stat.teeAccuracy ? 'bg-cyan-100 text-cyan-700' : 'bg-stone-100 text-stone-400'}`}>
-                            Tee: {stat.teeAccuracy || '—'}
-                          </div>
-                        </div>
-
-                        {stat.approachAccuracy && (
-                          <div className="mt-2 text-[10px] font-bold">
-                            <span className="px-2 py-1 rounded-lg bg-cyan-100 text-cyan-700">
-                              Approach: {stat.approachAccuracy}
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Strokes Gained breakdown for this hole */}
-                        {(holeSG.sgOffTheTee !== null || holeSG.sgApproach !== null) && (
-                          <div className="mt-2 flex gap-2 text-[10px] font-bold">
-                            {holeSG.sgOffTheTee !== null && (
-                              <span className={`px-2 py-1 rounded-lg ${sgBgColor(holeSG.sgOffTheTee)} ${sgColor(holeSG.sgOffTheTee)}`}>
-                                OTT: {formatSG(holeSG.sgOffTheTee)}
-                              </span>
-                            )}
-                            {holeSG.sgApproach !== null && (
-                              <span className={`px-2 py-1 rounded-lg ${sgBgColor(holeSG.sgApproach)} ${sgColor(holeSG.sgApproach)}`}>
-                                APP: {formatSG(holeSG.sgApproach)}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                              </td>
+                              <td className="px-2 py-1.5 text-center">
+                                {isEditingRound ? (
+                                  <input type="number" value={stat.putts}
+                                    onChange={(e) => setEditingRoundStats(prev => ({ ...prev, [holeNum]: { ...prev[holeNum], putts: Math.max(0, parseInt(e.target.value) || 0) } }))}
+                                    className="w-12 text-center bg-white border border-stone-200 rounded px-1 py-0.5 font-bold text-blue-600 outline-none"
+                                  />
+                                ) : (
+                                  <span className="font-medium text-stone-600">{stat.putts}</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 text-center">
+                                {isEditingRound ? (
+                                  <button onClick={() => toggleEditBool('fairway')}
+                                    className={`w-7 h-7 rounded-full text-xs font-bold ${stat.fairway === true ? 'bg-emerald-100 text-emerald-700' : stat.fairway === false ? 'bg-red-100 text-red-600' : 'bg-stone-100 text-stone-400'}`}>
+                                    {stat.fairway === true ? '✓' : stat.fairway === false ? '✗' : '—'}
+                                  </button>
+                                ) : (
+                                  <span className={stat.fairway ? 'text-emerald-600 font-bold' : 'text-stone-300'}>{stat.fairway === null ? '—' : stat.fairway ? '✓' : '✗'}</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 text-center">
+                                {isEditingRound ? (
+                                  <button onClick={() => toggleEditBool('gir')}
+                                    className={`w-7 h-7 rounded-full text-xs font-bold ${stat.gir === true ? 'bg-emerald-100 text-emerald-700' : stat.gir === false ? 'bg-red-100 text-red-600' : 'bg-stone-100 text-stone-400'}`}>
+                                    {stat.gir === true ? '✓' : stat.gir === false ? '✗' : '—'}
+                                  </button>
+                                ) : (
+                                  <span className={stat.gir ? 'text-emerald-600 font-bold' : 'text-stone-300'}>{stat.gir === null ? '—' : stat.gir ? '✓' : '✗'}</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 text-center">
+                                {isEditingRound ? (
+                                  <button onClick={() => toggleEditBool('upAndDown')}
+                                    className={`w-7 h-7 rounded-full text-xs font-bold ${stat.upAndDown === true ? 'bg-purple-100 text-purple-700' : stat.upAndDown === false ? 'bg-red-100 text-red-600' : 'bg-stone-100 text-stone-400'}`}>
+                                    {stat.upAndDown === true ? '✓' : stat.upAndDown === false ? '✗' : '—'}
+                                  </button>
+                                ) : (
+                                  <span className={stat.upAndDown ? 'text-purple-600 font-bold' : 'text-stone-300'}>{stat.upAndDown === null ? '—' : stat.upAndDown ? '✓' : '✗'}</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-1.5 text-center">
+                                {holeSG.sgTotal !== null ? (
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${sgBgColor(holeSG.sgTotal)} ${sgColor(holeSG.sgTotal)}`}>
+                                    {formatSG(holeSG.sgTotal)}
+                                  </span>
+                                ) : <span className="text-stone-300">—</span>}
+                              </td>
+                            </tr>
+                          </React.Fragment>
+                        );
+                      })}
+                      {/* Totals Row */}
+                      {(() => {
+                        const displayStats = isEditingRound ? editingRoundStats : selectedRound.holeStats;
+                        const holes = Object.values(displayStats) as HoleStats[];
+                        const totalScore = holes.reduce((sum, h) => sum + h.score, 0);
+                        const totalPar = holes.reduce((sum, h) => sum + h.par, 0);
+                        const totalPutts = holes.reduce((sum, h) => sum + h.putts, 0);
+                        const totalDiff = totalScore - totalPar;
+                        return (
+                          <tr className="bg-stone-800 text-white font-bold text-xs">
+                            <td className="px-2 py-2 sticky left-0 bg-stone-800 z-10">TOT</td>
+                            <td className="px-2 py-2 text-center">{totalPar}</td>
+                            <td className="px-2 py-2 text-center">{totalScore}</td>
+                            <td className="px-2 py-2 text-center">{totalDiff > 0 ? `+${totalDiff}` : totalDiff === 0 ? 'E' : totalDiff}</td>
+                            <td className="px-2 py-2 text-center">{totalPutts}</td>
+                            <td colSpan={4}></td>
+                          </tr>
+                        );
+                      })()}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
               {/* Footer with Buttons */}
-              <div className="sticky bottom-0 z-10 bg-gradient-to-t from-white to-white/50 px-6 py-4 border-t border-stone-100 flex gap-3">
-                <button
-                  onClick={() => deleteRound(selectedRound.id)}
-                  className="flex-1 px-4 py-3 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
-                >
-                  <Trash2 size={18} />
-                  Delete
-                </button>
-                <button
-                  onClick={() => setIsRoundModalOpen(false)}
-                  className="flex-1 px-4 py-3 bg-stone-100 text-stone-700 font-bold rounded-xl hover:bg-stone-200 transition-colors"
-                >
-                  Close
-                </button>
+              <div className="flex-shrink-0 bg-white px-6 py-4 border-t border-stone-100 flex gap-3">
+                {isEditingRound ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        const holes = Object.values(editingRoundStats) as HoleStats[];
+                        const newTotalScore = holes.reduce((sum, h) => sum + h.score, 0);
+                        const newTotalPar = holes.reduce((sum, h) => sum + h.par, 0);
+                        setRounds(prev => prev.map(r =>
+                          r.id === selectedRound!.id
+                            ? { ...r, holeStats: { ...editingRoundStats }, totalScore: newTotalScore, totalPar: newTotalPar }
+                            : r
+                        ));
+                        setSelectedRound(prev => prev ? { ...prev, holeStats: { ...editingRoundStats }, totalScore: holes.reduce((s, h) => s + h.score, 0), totalPar: holes.reduce((s, h) => s + h.par, 0) } : null);
+                        setIsEditingRound(false);
+                      }}
+                      className="flex-1 px-4 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Save size={18} />
+                      Save Changes
+                    </button>
+                    <button
+                      onClick={() => { setIsEditingRound(false); setEditingRoundStats({}); }}
+                      className="flex-1 px-4 py-3 bg-stone-100 text-stone-700 font-bold rounded-xl hover:bg-stone-200 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => { setEditingRoundStats({ ...selectedRound.holeStats }); setIsEditingRound(true); }}
+                      className="flex-1 px-4 py-3 bg-blue-50 text-blue-600 font-bold rounded-xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Pencil size={18} />
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => deleteRound(selectedRound.id)}
+                      className="px-4 py-3 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors flex items-center justify-center"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                    <button
+                      onClick={() => { setIsRoundModalOpen(false); setIsEditingRound(false); }}
+                      className="flex-1 px-4 py-3 bg-stone-100 text-stone-700 font-bold rounded-xl hover:bg-stone-200 transition-colors"
+                    >
+                      Close
+                    </button>
+                  </>
+                )}
               </div>
             </motion.div>
           </div>
