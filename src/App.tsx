@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import { supabaseDb } from './supabaseClient';
@@ -23,6 +23,8 @@ import {
   Minus,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   X,
   Check,
   Save,
@@ -87,7 +89,7 @@ interface HoleStats {
   gir: boolean | null;      // null = unselected
   upAndDown: boolean | null; // null = unselected
   sandSave: boolean | null;  // null = unselected
-  teeAccuracy: 'left' | 'center' | 'right' | null;
+  teeAccuracy: 'left' | 'center' | 'right' | 'long' | 'short' | null;
   approachAccuracy: 'left' | 'right' | 'short' | 'long' | 'center' | null;
   par: number;
   distance?: number;
@@ -528,7 +530,36 @@ export default function App() {
 
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
+// --- ATOMS3 BLUETOOTH HARDWARE LISTENER ---
+  useEffect(() => {
+    const handleHardwareButton = (event: KeyboardEvent) => {
+      // Listen for the 'Enter' key sent by the AtomS3
+      if (event.key === 'Enter') {
+        
+        // Safety Check: Don't trigger if you are actively typing in a text box or select menu
+        const activeTag = document.activeElement?.tagName.toLowerCase();
+        if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
+          return;
+        }
 
+        event.preventDefault(); // Prevent screen jumping
+
+        // Smart Toggle: Find which button is currently on the screen and click it
+        const measureBtn = document.getElementById('measure-btn');
+        const markBallBtn = document.getElementById('mark-ball-btn');
+
+        if (measureBtn) {
+          measureBtn.click();
+        } else if (markBallBtn) {
+          markBallBtn.click();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleHardwareButton);
+    return () => window.removeEventListener('keydown', handleHardwareButton);
+  }, []);
+  // ------------------------------------------
   const handleStartDrive = () => {
     if (currentPos) {
       setStartPos(currentPos);
@@ -639,7 +670,7 @@ export default function App() {
     });
   };
 
-  const setTeeAccuracy = (accuracy: 'left' | 'center' | 'right') => {
+  const setTeeAccuracy = (accuracy: 'left' | 'center' | 'right' | 'long' | 'short') => {
     setHoleStats(prev => {
       const current = prev[currentHole] || { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 };
       return {
@@ -685,6 +716,27 @@ export default function App() {
         ...prev,
         [currentHole]: { ...current, [stat]: newValue }
       };
+    });
+  };
+
+  const setStatDirectly = (
+    stat: 'fairway' | 'gir' | 'upAndDown' | 'sandSave' | 'layUp',
+    targetValue: boolean
+  ) => {
+    setHoleStats(prev => {
+      const current = prev[currentHole] || { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 };
+      const newValue = current[stat] === targetValue ? null : targetValue;
+
+      if (stat === 'sandSave' && newValue === true) {
+        return { ...prev, [currentHole]: { ...current, [stat]: newValue, upAndDown: true } };
+      }
+      if (stat === 'fairway' && (newValue === true || newValue === null)) {
+        return { ...prev, [currentHole]: { ...current, [stat]: newValue, teeAccuracy: null } };
+      }
+      if (stat === 'gir' && (newValue === true || newValue === null)) {
+        return { ...prev, [currentHole]: { ...current, [stat]: newValue, approachAccuracy: null } };
+      }
+      return { ...prev, [currentHole]: { ...current, [stat]: newValue } };
     });
   };
 
@@ -1468,67 +1520,115 @@ Requirements:
                   </div>
                 )}
 
-                {/* Fairway Row - Hidden on Par 3 - Check/X style with unselected state */}
+                {/* Fairway Row - Hidden on Par 3 */}
                 {currentHoleData.par > 3 && (
                   <div className="flex items-center justify-between px-4 py-2.5">
                     <span className="font-bold text-stone-700 text-sm">Fairway</span>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => toggleStat('fairway' as any)}
+                        onClick={() => setStatDirectly('fairway', true)}
                         className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.fairway === true
                             ? 'bg-emerald-500 border-emerald-500 text-white'
-                            : currentHoleData.fairway === false
-                            ? 'bg-white border-stone-200 text-stone-300'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
                         }`}
                       >
                         <Check size={20} strokeWidth={3} />
                       </button>
                       <button
-                        onClick={() => toggleStat('fairway' as any)}
+                        onClick={() => setStatDirectly('fairway', false)}
                         className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.fairway === false
                             ? 'bg-stone-400 border-stone-400 text-white'
-                            : currentHoleData.fairway === true
-                            ? 'bg-white border-stone-200 text-stone-300'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
                         }`}
                       >
                         <X size={20} strokeWidth={3} />
                       </button>
+                      <AnimatePresence>
+                        {currentHoleData.fairway === false && (
+                          <motion.div
+                            initial={{ opacity: 0, width: 0 }}
+                            animate={{ opacity: 1, width: 'auto' }}
+                            exit={{ opacity: 0, width: 0 }}
+                            className="flex items-center gap-1 overflow-hidden"
+                          >
+                            {(['left', 'long', 'short', 'right'] as const).map(dir => (
+                              <button
+                                key={dir}
+                                onClick={() => setTeeAccuracy(dir)}
+                                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border ${
+                                  currentHoleData.teeAccuracy === dir
+                                    ? 'bg-amber-500 border-amber-500 text-white'
+                                    : 'bg-white border-stone-200 text-stone-400 hover:border-amber-300'
+                                }`}
+                                title={dir.charAt(0).toUpperCase() + dir.slice(1)}
+                              >
+                                {dir === 'left' && <ChevronLeft size={16} />}
+                                {dir === 'long' && <ChevronUp size={16} />}
+                                {dir === 'short' && <ChevronDown size={16} />}
+                                {dir === 'right' && <ChevronRight size={16} />}
+                              </button>
+                            ))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
                   </div>
                 )}
 
-                {/* GIR Row - Check/X style with unselected state */}
+                {/* GIR Row */}
                 <div className="flex items-center justify-between px-4 py-2.5">
                   <span className="font-bold text-stone-700 text-sm">GIR</span>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => toggleStat('gir' as any)}
+                      onClick={() => setStatDirectly('gir', true)}
                       className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
                         currentHoleData.gir === true
                           ? 'bg-emerald-500 border-emerald-500 text-white'
-                          : currentHoleData.gir === false
-                          ? 'bg-white border-stone-200 text-stone-300'
                           : 'bg-stone-100 border-stone-300 text-stone-400'
                       }`}
                     >
                       <Check size={20} strokeWidth={3} />
                     </button>
                     <button
-                      onClick={() => toggleStat('gir' as any)}
+                      onClick={() => setStatDirectly('gir', false)}
                       className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
                         currentHoleData.gir === false
                           ? 'bg-stone-400 border-stone-400 text-white'
-                          : currentHoleData.gir === true
-                          ? 'bg-white border-stone-200 text-stone-300'
                           : 'bg-stone-100 border-stone-300 text-stone-400'
                       }`}
                     >
                       <X size={20} strokeWidth={3} />
                     </button>
+                    <AnimatePresence>
+                      {currentHoleData.gir === false && (
+                        <motion.div
+                          initial={{ opacity: 0, width: 0 }}
+                          animate={{ opacity: 1, width: 'auto' }}
+                          exit={{ opacity: 0, width: 0 }}
+                          className="flex items-center gap-1 overflow-hidden"
+                        >
+                          {(['left', 'long', 'short', 'right'] as const).map(dir => (
+                            <button
+                              key={dir}
+                              onClick={() => setApproachAccuracy(dir)}
+                              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border ${
+                                currentHoleData.approachAccuracy === dir
+                                  ? 'bg-amber-500 border-amber-500 text-white'
+                                  : 'bg-white border-stone-200 text-stone-400 hover:border-amber-300'
+                              }`}
+                              title={dir.charAt(0).toUpperCase() + dir.slice(1)}
+                            >
+                              {dir === 'left' && <ChevronLeft size={16} />}
+                              {dir === 'long' && <ChevronUp size={16} />}
+                              {dir === 'short' && <ChevronDown size={16} />}
+                              {dir === 'right' && <ChevronRight size={16} />}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </div>
 
@@ -1538,24 +1638,20 @@ Requirements:
                     <span className="font-bold text-stone-700 text-sm">Lay Up</span>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => toggleStat('layUp' as any)}
+                        onClick={() => setStatDirectly('layUp', true)}
                         className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.layUp === true
                             ? 'bg-emerald-500 border-emerald-500 text-white'
-                            : currentHoleData.layUp === false
-                            ? 'bg-white border-stone-200 text-stone-300'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
                         }`}
                       >
                         <Check size={20} strokeWidth={3} />
                       </button>
                       <button
-                        onClick={() => toggleStat('layUp' as any)}
+                        onClick={() => setStatDirectly('layUp', false)}
                         className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.layUp === false
                             ? 'bg-stone-400 border-stone-400 text-white'
-                            : currentHoleData.layUp === true
-                            ? 'bg-white border-stone-200 text-stone-300'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
                         }`}
                       >
@@ -1565,29 +1661,25 @@ Requirements:
                   </div>
                 )}
 
-                {/* Sand Save Row - Check/X style with unselected state */}
+                {/* Sand Save Row */}
                 <div className="flex items-center justify-between px-4 py-2.5">
                   <span className="font-bold text-stone-700 text-sm">Sand Save</span>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => toggleStat('sandSave' as any)}
+                      onClick={() => setStatDirectly('sandSave', true)}
                       className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
                         currentHoleData.sandSave === true
                           ? 'bg-emerald-500 border-emerald-500 text-white'
-                          : currentHoleData.sandSave === false
-                          ? 'bg-white border-stone-200 text-stone-300'
                           : 'bg-stone-100 border-stone-300 text-stone-400'
                       }`}
                     >
                       <Check size={20} strokeWidth={3} />
                     </button>
                     <button
-                      onClick={() => toggleStat('sandSave' as any)}
+                      onClick={() => setStatDirectly('sandSave', false)}
                       className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
                         currentHoleData.sandSave === false
                           ? 'bg-stone-400 border-stone-400 text-white'
-                          : currentHoleData.sandSave === true
-                          ? 'bg-white border-stone-200 text-stone-300'
                           : 'bg-stone-100 border-stone-300 text-stone-400'
                       }`}
                     >
@@ -1596,29 +1688,25 @@ Requirements:
                   </div>
                 </div>
 
-                {/* Up & Down Row - Check/X style with unselected state */}
+                {/* Up & Down Row */}
                 <div className="flex items-center justify-between px-4 py-2.5">
                   <span className="font-bold text-stone-700 text-sm">Up & Down</span>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => toggleStat('upAndDown' as any)}
+                      onClick={() => setStatDirectly('upAndDown', true)}
                       className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
                         currentHoleData.upAndDown === true
                           ? 'bg-emerald-500 border-emerald-500 text-white'
-                          : currentHoleData.upAndDown === false
-                          ? 'bg-white border-stone-200 text-stone-300'
                           : 'bg-stone-100 border-stone-300 text-stone-400'
                       }`}
                     >
                       <Check size={20} strokeWidth={3} />
                     </button>
                     <button
-                      onClick={() => toggleStat('upAndDown' as any)}
+                      onClick={() => setStatDirectly('upAndDown', false)}
                       className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
                         currentHoleData.upAndDown === false
                           ? 'bg-stone-400 border-stone-400 text-white'
-                          : currentHoleData.upAndDown === true
-                          ? 'bg-white border-stone-200 text-stone-300'
                           : 'bg-stone-100 border-stone-300 text-stone-400'
                       }`}
                     >
@@ -1628,56 +1716,7 @@ Requirements:
                 </div>
               </div>
 
-              {/* Accuracy Buttons - Compact */}
-              <div className="bg-white rounded-2xl shadow-sm border border-stone-100 p-3 space-y-3">
-                {/* Tee Shot Accuracy */}
-                {currentHoleData.par > 3 && (
-                  <div className="flex items-center justify-between">
-                    <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">Tee Accuracy</p>
-                    <div className="flex gap-2">
-                      {(['left', 'center', 'right'] as const).map(dir => (
-                        <button
-                          key={dir}
-                          onClick={() => setTeeAccuracy(dir)}
-                          className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
-                            currentHoleData.teeAccuracy === dir
-                              ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
-                              : 'bg-white border-stone-100 text-stone-400 hover:border-emerald-200'
-                          }`}
-                        >
-                          {dir === 'left' && <ChevronLeft size={20} />}
-                          {dir === 'center' && <div className="relative flex items-center justify-center"><div className="w-4 h-4 border-2 border-current rounded-full" /><div className="absolute w-1.5 h-1.5 bg-current rounded-full" /></div>}
-                          {dir === 'right' && <ChevronRight size={20} />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Approach Accuracy */}
-                <div className="flex items-center justify-between">
-                  <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">Approach</p>
-                  <div className="flex gap-2">
-                    {(['left', 'long', 'center', 'short', 'right'] as const).map(dir => (
-                      <button
-                        key={dir}
-                        onClick={() => setApproachAccuracy(dir)}
-                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
-                          currentHoleData.approachAccuracy === dir
-                            ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
-                            : 'bg-white border-stone-100 text-stone-400 hover:border-emerald-200'
-                        }`}
-                      >
-                        {dir === 'left' && <ChevronLeft size={18} />}
-                        {dir === 'long' && <div className="rotate-90"><ChevronLeft size={18} /></div>}
-                        {dir === 'center' && <div className="relative flex items-center justify-center"><div className="w-4 h-4 border-2 border-current rounded-full" /><div className="absolute w-1.5 h-1.5 bg-current rounded-full" /></div>}
-                        {dir === 'short' && <div className="-rotate-90"><ChevronLeft size={18} /></div>}
-                        {dir === 'right' && <ChevronRight size={18} />}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              {/* Accuracy arrows are now integrated inline in Fairway/GIR rows above */}
 
               {/* Drive Tracking - Compact */}
               <div className="space-y-2">
@@ -1778,6 +1817,7 @@ Requirements:
                     )}
                     <div className="flex gap-2">
                       <button
+                        id="mark-ball-btn"
                         onClick={handleMarkBall}
                         className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/10 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
                       >
