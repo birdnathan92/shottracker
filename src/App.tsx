@@ -1508,15 +1508,27 @@ Requirements:
                     <p className="text-xs font-bold text-stone-500 uppercase">Par {currentHoleData.par}</p>
                     <p className="text-xs font-bold text-stone-400">{Math.round(unit === 'yards' ? getCurrentHoleDistance() : getCurrentHoleDistance() * 0.9144)} {unit.toUpperCase()}</p>
                   </div>
-                  {/* Live SG badge for current hole */}
+                  {/* Score relative to par badge */}
                   {(() => {
-                    const holeDistance = getCurrentHoleDistance();
-                    if (!holeDistance || holeDistance <= 0 || !currentHoleData.score) return null;
-                    const sg = calculateHoleSG({ ...currentHoleData, distance: holeDistance });
-                    if (sg.sgTotal === null) return null;
+                    let totalScore = 0;
+                    let totalPar = 0;
+                    let holesScored = 0;
+                    for (let i = 1; i <= currentHole; i++) {
+                      const stat = holeStats[i];
+                      if (stat && stat.score > 0) {
+                        totalScore += stat.score;
+                        totalPar += stat.par;
+                        holesScored++;
+                      }
+                    }
+                    if (holesScored === 0) return null;
+                    const diff = totalScore - totalPar;
+                    const label = diff === 0 ? 'E' : diff > 0 ? `+${diff}` : `${diff}`;
+                    const bgColor = diff < 0 ? 'bg-emerald-50' : diff > 0 ? 'bg-red-50' : 'bg-stone-100';
+                    const textColor = diff < 0 ? 'text-emerald-700' : diff > 0 ? 'text-red-600' : 'text-stone-600';
                     return (
-                      <span className={`text-xs font-bold px-2 py-1 rounded-lg ${sgBgColor(sg.sgTotal)} ${sgColor(sg.sgTotal)}`}>
-                        SG: {formatSG(sg.sgTotal)}
+                      <span className={`text-xs font-bold px-2 py-1 rounded-lg ${bgColor} ${textColor}`}>
+                        {label} thru {holesScored}
                       </span>
                     );
                   })()}
