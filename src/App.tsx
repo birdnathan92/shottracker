@@ -317,6 +317,7 @@ export default function App() {
   const [selectedRound, setSelectedRound] = useState<Round | null>(null);
   const [isRoundModalOpen, setIsRoundModalOpen] = useState(false);
   const [selectedApproachClubId, setSelectedApproachClubId] = useState<string>(DEFAULT_CLUBS[0].id);
+  const [hasManuallySelectedApproachClub, setHasManuallySelectedApproachClub] = useState(false);
   const [remainingDistance, setRemainingDistance] = useState<number | null>(null);
   const [approachDistanceOverride, setApproachDistanceOverride] = useState<number | null>(null);
   const [isEditingRound, setIsEditingRound] = useState(false);
@@ -847,6 +848,7 @@ export default function App() {
     setRemainingDistance(null);
     setLastDriveDistance(null);
     setApproachDistanceOverride(null);
+    setHasManuallySelectedApproachClub(false);
 
     // Restore club selections if the next hole has saved clubs, otherwise default
     const nextHoleData = holeStats[nextHole];
@@ -1598,7 +1600,17 @@ Requirements:
                     <div className="relative">
                       <select
                         value={selectedApproachClubId}
-                        onChange={(e) => setSelectedApproachClubId(e.target.value)}
+                        onChange={(e) => {
+                          setSelectedApproachClubId(e.target.value);
+                          setHasManuallySelectedApproachClub(true);
+                          setHoleStats(prev => ({
+                            ...prev,
+                            [currentHole]: {
+                              ...prev[currentHole],
+                              approachClub: e.target.value
+                            }
+                          }));
+                        }}
                         className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-1.5 font-bold text-blue-600 appearance-none pr-7 outline-none text-sm"
                       >
                         <option disabled value="">Select</option>
@@ -1875,6 +1887,22 @@ Requirements:
                               // Always update Last Shot bubble: Total Hole Distance - Approach = Last Shot
                               if (calculatedDriveYards > 0) {
                                 setLastDriveDistance(calculatedDriveYards / 1.09361); // yards → meters
+                              }
+
+                              // Auto-suggest approach club based on new remaining distance
+                              // Only if user hasn't manually selected a club yet
+                              if (!hasManuallySelectedApproachClub) {
+                                const suggestedClubId = suggestApproachClub(val);
+                                if (suggestedClubId) {
+                                  setSelectedApproachClubId(suggestedClubId);
+                                  setHoleStats(prev => ({
+                                    ...prev,
+                                    [currentHole]: {
+                                      ...prev[currentHole],
+                                      approachClub: suggestedClubId
+                                    }
+                                  }));
+                                }
                               }
                             }
                           }}
