@@ -12,10 +12,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // Types for database operations
 export interface DbRound {
   id: string;
-  course_id: string;
-  date: string;
+  course_name: string;
+  date: number;
   total_score: number;
-  total_putts: number;
+  total_par: number;
+  hole_stats_data: string; // JSON string of hole stats
   created_at: string;
   updated_at: string;
 }
@@ -25,6 +26,7 @@ export interface DbCourse {
   name: string;
   location?: string;
   holes: DbCourseHole[];
+  teeBoxes?: { name: string; color: string; holes: DbCourseHole[]; slope?: number; courseRating?: number }[];
   created_at: string;
   updated_at: string;
 }
@@ -67,17 +69,36 @@ export interface DbClub {
   name: string;
   avg_distance: number;
   created_at: string;
+  updated_at?: string;
 }
 
 // Database operation functions
 export const supabaseDb = {
   // Rounds operations
   async saveRound(round: DbRound) {
+    console.log('[Supabase] Saving round:', { id: round.id, course_name: round.course_name, date: round.date, total_score: round.total_score });
+
+    // Don't send created_at/updated_at - let DB defaults handle them
+    const payload = {
+      id: round.id,
+      course_name: round.course_name,
+      date: round.date,  // BIGINT milliseconds
+      total_score: round.total_score,
+      total_par: round.total_par,
+      hole_stats_data: round.hole_stats_data,
+    };
+
     const { data, error } = await supabase
       .from('rounds')
-      .upsert(round, { onConflict: 'id' })
+      .upsert(payload, { onConflict: 'id' })
       .select();
-    if (error) throw error;
+
+    if (error) {
+      console.error('[Supabase] Round save error:', error);
+      throw error;
+    }
+
+    console.log('[Supabase] Round saved:', data);
     return data?.[0];
   },
 
@@ -100,13 +121,17 @@ export const supabaseDb = {
 
   // Courses operations
   async saveCourse(course: DbCourse) {
+    // Store both holes and teeBoxes in holes_data JSONB column
+    const holesData = course.teeBoxes && course.teeBoxes.length > 0
+      ? JSON.stringify({ holes: course.holes, teeBoxes: course.teeBoxes })
+      : JSON.stringify(course.holes);
     const { data, error } = await supabase
       .from('courses')
       .upsert({
         id: course.id,
         name: course.name,
         location: course.location,
-        holes_data: JSON.stringify(course.holes),
+        holes_data: holesData,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'id' })
       .select();
@@ -120,10 +145,14 @@ export const supabaseDb = {
       .select('*')
       .order('name');
     if (error) throw error;
-    return (data || []).map((course: any) => ({
-      ...course,
-      holes: JSON.parse(course.holes_data || '[]'),
-    }));
+    return (data || []).map((course: any) => {
+      const parsed = JSON.parse(course.holes_data || '[]');
+      // Handle both formats: array of holes (old) or object with holes + teeBoxes (new)
+      if (Array.isArray(parsed)) {
+        return { ...course, holes: parsed };
+      }
+      return { ...course, holes: parsed.holes || [], teeBoxes: parsed.teeBoxes || undefined };
+    });
   },
 
   async deleteCourse(id: string) {
@@ -138,7 +167,7 @@ export const supabaseDb = {
   async saveDrive(drive: DbDrive) {
     const { data, error } = await supabase
       .from('drives')
-      .insert(drive)
+      .upsert(drive, { onConflict: 'id' })
       .select();
     if (error) throw error;
     return data?.[0];
@@ -152,6 +181,14 @@ export const supabaseDb = {
     const { data, error } = await query.order('timestamp', { ascending: false });
     if (error) throw error;
     return data || [];
+  },
+
+  async deleteDrive(id: string) {
+    const { error } = await supabase
+      .from('drives')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
   },
 
   // Hole stats operations
@@ -174,12 +211,21 @@ export const supabaseDb = {
   },
 
   // Clubs operations
-  async saveClub(club: DbClub) {
+  async saveClub(club: { name: string; avg_distance: number }) {
+    // Upsert: insert or update distance if club name already exists
     const { data, error } = await supabase
       .from('clubs')
-      .upsert(club, { onConflict: 'id' })
+      .upsert({
+        name: club.name,
+        avg_distance: club.avg_distance,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'name' })
       .select();
-    if (error) throw error;
+
+    if (error) {
+      console.error('[Supabase] saveClub error:', error);
+      throw error;
+    }
     return data?.[0];
   },
 
@@ -198,5 +244,41 @@ export const supabaseDb = {
       .delete()
       .eq('id', id);
     if (error) throw error;
+  },
+
+  // User Bag operations
+  async saveBag(bag: any[]) {
+    const { data, error } = await supabase
+      .from('user_bag')
+      .upsert({
+        id: '00000000-0000-0000-0000-000000000001', // singleton ID
+        bag_data: JSON.stringify(bag),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' })
+      .select();
+
+    if (error) {
+      console.error('[Supabase] saveBag error:', error);
+      throw error;
+    }
+    return data?.[0];
+  },
+
+  async getBag() {
+    const { data, error } = await supabase
+      .from('user_bag')
+      .select('bag_data')
+      .eq('id', '00000000-0000-0000-0000-000000000001')
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+      console.error('[Supabase] getBag error:', error);
+      throw error;
+    }
+
+    if (data?.bag_data) {
+      return typeof data.bag_data === 'string' ? JSON.parse(data.bag_data) : data.bag_data;
+    }
+    return null;
   },
 };
