@@ -868,17 +868,18 @@ export default function App() {
   };
 
   // Auto-suggest approach shot club based on distance to green (in yards)
+  // Uses 4-yard overage tolerance: allows approaching to up to 4 yards above club distance
   const suggestApproachClub = (distanceYards: number): string | null => {
     if (bag.length === 0) return null;
 
     // remainingDistance is now in yards, same unit as club avgDistance
-    // Find club with avg distance closest to but not exceeding the remaining distance
+    // Find club within 4-yard tolerance: club.avgDistance >= distanceYards - 4
     let bestClub: typeof bag[0] | null = null;
     let smallestDifference = Infinity;
 
     for (const club of bag) {
-      if (club.avgDistance <= distanceYards) {
-        const difference = distanceYards - club.avgDistance;
+      if (club.avgDistance >= distanceYards - 4) {
+        const difference = Math.abs(distanceYards - club.avgDistance);
         if (difference < smallestDifference) {
           smallestDifference = difference;
           bestClub = club;
@@ -886,7 +887,7 @@ export default function App() {
       }
     }
 
-    // If no club found that stays within distance, pick the shortest club
+    // If no club found within tolerance, pick the shortest club (extreme fallback)
     if (!bestClub) {
       bestClub = bag.reduce((shortest, current) =>
         current.avgDistance < shortest.avgDistance ? current : shortest
