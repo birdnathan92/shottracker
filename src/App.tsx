@@ -467,6 +467,14 @@ export default function App() {
     }
   }, [bag]);
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_courses', JSON.stringify(courses)); }, [courses]);
+
+  // Auto-save mapping data to the course whenever it changes
+  useEffect(() => {
+    if (!editingCourse || mappingData.length === 0) return;
+    setCourses(prev => prev.map(c =>
+      c.id === editingCourse.id ? { ...c, holeMapping: mappingData } : c
+    ));
+  }, [mappingData]);
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_hole_stats', JSON.stringify(holeStats)); }, [holeStats]);
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_approach_shots', JSON.stringify(approachShots)); }, [approachShots]);
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_is_round_active', JSON.stringify(isRoundActive)); }, [isRoundActive]);
