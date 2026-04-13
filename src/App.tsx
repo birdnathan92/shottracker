@@ -370,8 +370,7 @@ export default function App() {
   const [addFeatureMenuOpen, setAddFeatureMenuOpen] = useState(false);
   const [customFeatureName, setCustomFeatureName] = useState('');
   const [manualCoordFeatureId, setManualCoordFeatureId] = useState<string | null>(null);
-  const [manualLat, setManualLat] = useState('');
-  const [manualLng, setManualLng] = useState('');
+  const [manualDmsInput, setManualDmsInput] = useState('');
 
   // ---- DATA PERSISTENCE: Consolidated load/save with Supabase as primary ----
   const isInitialLoadComplete = React.useRef(false);
@@ -1207,8 +1206,7 @@ Requirements:
     setAddFeatureMenuOpen(false);
     setCustomFeatureName('');
     setManualCoordFeatureId(null);
-    setManualLat('');
-    setManualLng('');
+    setManualDmsInput('');
     setIsMappingModeOpen(true);
   };
 
@@ -1233,26 +1231,38 @@ Requirements:
     setTimeout(() => setMappingGpsStatus(''), 2000);
   };
 
+  const parseDmsCoordinates = (input: string): { lat: number; lng: number } | null => {
+    // Parse DMS format like: 49°13'55.16"N 123°12'27.76"W
+    const dmsRegex = /(\d+)[°]\s*(\d+)[''′]\s*([\d.]+)[""″]?\s*([NSns])\s+(\d+)[°]\s*(\d+)[''′]\s*([\d.]+)[""″]?\s*([EWew])/;
+    const match = input.trim().match(dmsRegex);
+    if (match) {
+      const latDeg = parseFloat(match[1]) + parseFloat(match[2]) / 60 + parseFloat(match[3]) / 3600;
+      const lngDeg = parseFloat(match[5]) + parseFloat(match[6]) / 60 + parseFloat(match[7]) / 3600;
+      const lat = match[4].toUpperCase() === 'S' ? -latDeg : latDeg;
+      const lng = match[8].toUpperCase() === 'W' ? -lngDeg : lngDeg;
+      return { lat, lng };
+    }
+    return null;
+  };
+
   const applyManualCoordinates = (holeIdx: number, featureId: string) => {
-    const lat = parseFloat(manualLat);
-    const lng = parseFloat(manualLng);
-    if (isNaN(lat) || isNaN(lng)) {
-      setMappingGpsStatus('Invalid coordinates');
-      setTimeout(() => setMappingGpsStatus(''), 2000);
+    const parsed = parseDmsCoordinates(manualDmsInput);
+    if (!parsed) {
+      setMappingGpsStatus('Invalid format. Use: 49°13\'55.16"N 123°12\'27.76"W');
+      setTimeout(() => setMappingGpsStatus(''), 4000);
       return;
     }
     setMappingData(prev => {
       const updated = [...prev];
       const hole = { ...updated[holeIdx] };
       hole.features = hole.features.map(f =>
-        f.id === featureId ? { ...f, coordinates: { lat, lng } } : f
+        f.id === featureId ? { ...f, coordinates: parsed } : f
       );
       updated[holeIdx] = hole;
       return updated;
     });
     setManualCoordFeatureId(null);
-    setManualLat('');
-    setManualLng('');
+    setManualDmsInput('');
   };
 
   const addMappingFeature = (holeIdx: number, name: string, type: 'hazard' | 'custom') => {
@@ -3112,8 +3122,7 @@ Requirements:
                                         setManualCoordFeatureId(null);
                                       } else {
                                         setManualCoordFeatureId(feature.id);
-                                        setManualLat(feature.coordinates?.lat.toString() || '');
-                                        setManualLng(feature.coordinates?.lng.toString() || '');
+                                        setManualDmsInput('');
                                       }
                                     }}
                                     className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200 transition-colors flex items-center justify-center gap-1"
@@ -3123,21 +3132,17 @@ Requirements:
                                   </button>
                                 </div>
                                 {manualCoordFeatureId === feature.id && (
-                                  <div className="mt-2 flex gap-2 items-end">
-                                    <div className="flex-1">
-                                      <label className="text-[9px] font-bold text-stone-400 uppercase">Lat</label>
-                                      <input type="text" value={manualLat} onChange={(e) => setManualLat(e.target.value)}
-                                        placeholder="43.65320" className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
+                                  <div className="mt-2 space-y-1.5">
+                                    <label className="text-[9px] font-bold text-stone-400 uppercase">DMS Coordinates</label>
+                                    <div className="flex gap-2">
+                                      <input type="text" value={manualDmsInput} onChange={(e) => setManualDmsInput(e.target.value)}
+                                        placeholder={'49°13\'55.16"N 123°12\'27.76"W'}
+                                        className="flex-1 bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
+                                      <button onClick={() => applyManualCoordinates(mappingHoleIndex, feature.id)}
+                                        className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Check size={16} /></button>
+                                      <button onClick={() => setManualCoordFeatureId(null)}
+                                        className="p-1.5 bg-stone-200 text-stone-600 rounded-lg hover:bg-stone-300"><X size={16} /></button>
                                     </div>
-                                    <div className="flex-1">
-                                      <label className="text-[9px] font-bold text-stone-400 uppercase">Lng</label>
-                                      <input type="text" value={manualLng} onChange={(e) => setManualLng(e.target.value)}
-                                        placeholder="-79.38320" className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
-                                    </div>
-                                    <button onClick={() => applyManualCoordinates(mappingHoleIndex, feature.id)}
-                                      className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Check size={16} /></button>
-                                    <button onClick={() => setManualCoordFeatureId(null)}
-                                      className="p-1.5 bg-stone-200 text-stone-600 rounded-lg hover:bg-stone-300"><X size={16} /></button>
                                   </div>
                                 )}
                               </div>
@@ -3174,8 +3179,7 @@ Requirements:
                                       setManualCoordFeatureId(null);
                                     } else {
                                       setManualCoordFeatureId(feature.id);
-                                      setManualLat(feature.coordinates?.lat.toString() || '');
-                                      setManualLng(feature.coordinates?.lng.toString() || '');
+                                      setManualDmsInput('');
                                     }
                                   }}
                                   className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200 transition-colors flex items-center justify-center gap-1"
@@ -3185,21 +3189,17 @@ Requirements:
                                 </button>
                               </div>
                               {manualCoordFeatureId === feature.id && (
-                                <div className="mt-2 flex gap-2 items-end">
-                                  <div className="flex-1">
-                                    <label className="text-[9px] font-bold text-stone-400 uppercase">Lat</label>
-                                    <input type="text" value={manualLat} onChange={(e) => setManualLat(e.target.value)}
-                                      placeholder="43.65320" className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
+                                <div className="mt-2 space-y-1.5">
+                                  <label className="text-[9px] font-bold text-stone-400 uppercase">DMS Coordinates</label>
+                                  <div className="flex gap-2">
+                                    <input type="text" value={manualDmsInput} onChange={(e) => setManualDmsInput(e.target.value)}
+                                      placeholder={'49°13\'55.16"N 123°12\'27.76"W'}
+                                      className="flex-1 bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
+                                    <button onClick={() => applyManualCoordinates(mappingHoleIndex, feature.id)}
+                                      className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Check size={16} /></button>
+                                    <button onClick={() => setManualCoordFeatureId(null)}
+                                      className="p-1.5 bg-stone-200 text-stone-600 rounded-lg hover:bg-stone-300"><X size={16} /></button>
                                   </div>
-                                  <div className="flex-1">
-                                    <label className="text-[9px] font-bold text-stone-400 uppercase">Lng</label>
-                                    <input type="text" value={manualLng} onChange={(e) => setManualLng(e.target.value)}
-                                      placeholder="-79.38320" className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
-                                  </div>
-                                  <button onClick={() => applyManualCoordinates(mappingHoleIndex, feature.id)}
-                                    className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Check size={16} /></button>
-                                  <button onClick={() => setManualCoordFeatureId(null)}
-                                    className="p-1.5 bg-stone-200 text-stone-600 rounded-lg hover:bg-stone-300"><X size={16} /></button>
                                 </div>
                               )}
                             </div>
@@ -3238,8 +3238,7 @@ Requirements:
                                     setManualCoordFeatureId(null);
                                   } else {
                                     setManualCoordFeatureId(feature.id);
-                                    setManualLat(feature.coordinates?.lat.toString() || '');
-                                    setManualLng(feature.coordinates?.lng.toString() || '');
+                                    setManualDmsInput('');
                                   }
                                 }}
                                 className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200 transition-colors flex items-center justify-center gap-1"
@@ -3249,21 +3248,17 @@ Requirements:
                               </button>
                             </div>
                             {manualCoordFeatureId === feature.id && (
-                              <div className="mt-2 flex gap-2 items-end">
-                                <div className="flex-1">
-                                  <label className="text-[9px] font-bold text-stone-400 uppercase">Lat</label>
-                                  <input type="text" value={manualLat} onChange={(e) => setManualLat(e.target.value)}
-                                    placeholder="43.65320" className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
+                              <div className="mt-2 space-y-1.5">
+                                <label className="text-[9px] font-bold text-stone-400 uppercase">DMS Coordinates</label>
+                                <div className="flex gap-2">
+                                  <input type="text" value={manualDmsInput} onChange={(e) => setManualDmsInput(e.target.value)}
+                                    placeholder={'49°13\'55.16"N 123°12\'27.76"W'}
+                                    className="flex-1 bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
+                                  <button onClick={() => applyManualCoordinates(mappingHoleIndex, feature.id)}
+                                    className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Check size={16} /></button>
+                                  <button onClick={() => setManualCoordFeatureId(null)}
+                                    className="p-1.5 bg-stone-200 text-stone-600 rounded-lg hover:bg-stone-300"><X size={16} /></button>
                                 </div>
-                                <div className="flex-1">
-                                  <label className="text-[9px] font-bold text-stone-400 uppercase">Lng</label>
-                                  <input type="text" value={manualLng} onChange={(e) => setManualLng(e.target.value)}
-                                    placeholder="-79.38320" className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
-                                </div>
-                                <button onClick={() => applyManualCoordinates(mappingHoleIndex, feature.id)}
-                                  className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Check size={16} /></button>
-                                <button onClick={() => setManualCoordFeatureId(null)}
-                                  className="p-1.5 bg-stone-200 text-stone-600 rounded-lg hover:bg-stone-300"><X size={16} /></button>
                               </div>
                             )}
                           </div>
