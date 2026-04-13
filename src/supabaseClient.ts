@@ -27,6 +27,7 @@ export interface DbCourse {
   location?: string;
   holes: DbCourseHole[];
   teeBoxes?: { name: string; color: string; holes: DbCourseHole[]; slope?: number; courseRating?: number }[];
+  holeMapping?: any[];
   created_at: string;
   updated_at: string;
 }
@@ -121,10 +122,13 @@ export const supabaseDb = {
 
   // Courses operations
   async saveCourse(course: DbCourse) {
-    // Store both holes and teeBoxes in holes_data JSONB column
-    const holesData = course.teeBoxes && course.teeBoxes.length > 0
-      ? JSON.stringify({ holes: course.holes, teeBoxes: course.teeBoxes })
-      : JSON.stringify(course.holes);
+    // Store holes, teeBoxes, and holeMapping in holes_data JSONB column
+    const holesDataObj: any = { holes: course.holes };
+    if (course.teeBoxes && course.teeBoxes.length > 0) holesDataObj.teeBoxes = course.teeBoxes;
+    if (course.holeMapping && course.holeMapping.length > 0) holesDataObj.holeMapping = course.holeMapping;
+    const holesData = Object.keys(holesDataObj).length === 1 && !holesDataObj.teeBoxes
+      ? JSON.stringify(course.holes)
+      : JSON.stringify(holesDataObj);
     const { data, error } = await supabase
       .from('courses')
       .upsert({
@@ -151,7 +155,7 @@ export const supabaseDb = {
       if (Array.isArray(parsed)) {
         return { ...course, holes: parsed };
       }
-      return { ...course, holes: parsed.holes || [], teeBoxes: parsed.teeBoxes || undefined };
+      return { ...course, holes: parsed.holes || [], teeBoxes: parsed.teeBoxes || undefined, holeMapping: parsed.holeMapping || undefined };
     });
   },
 

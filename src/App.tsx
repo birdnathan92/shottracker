@@ -112,11 +112,30 @@ interface TeeBox {
   courseRating?: number;
 }
 
+interface FeatureCoordinate {
+  lat: number;
+  lng: number;
+}
+
+interface HoleFeature {
+  id: string;
+  type: 'tee_box' | 'green' | 'hazard' | 'custom';
+  name: string;
+  teeBoxColor?: string;
+  coordinates?: FeatureCoordinate;
+}
+
+interface HoleMapping {
+  holeNumber: number;
+  features: HoleFeature[];
+}
+
 interface Course {
   id: string;
   name: string;
   holes: CourseHole[];
   teeBoxes?: TeeBox[];
+  holeMapping?: HoleMapping[];
 }
 
 type Unit = 'yards' | 'meters';
@@ -215,6 +234,16 @@ const TEE_BOX_COLORS: Record<string, string> = {
 };
 
 const TEE_COLOR_OPTIONS = ['black', 'blue', 'white', 'red', 'gold', 'green'];
+
+const PRESET_HAZARD_FEATURES = [
+  'Water Hazard',
+  'Left Fairway Bunker',
+  'Right Fairway Bunker',
+  'Left Greenside Bunker',
+  'Right Greenside Bunker',
+] as const;
+
+const GREEN_FEATURES = ['Front of Green', 'Middle of Green', 'Back of Green'] as const;
 
 // Helper: safely parse localStorage
 function loadLocal<T>(key: string, fallback: T): T {
@@ -333,6 +362,17 @@ export default function App() {
   // Editing tee boxes for manual course entry
   const [editingTeeBoxes, setEditingTeeBoxes] = useState<{ name: string; color: string; slope: number; courseRating: number; distances: number[] }[]>([]);
 
+  // Mapping mode state
+  const [isMappingModeOpen, setIsMappingModeOpen] = useState(false);
+  const [mappingHoleIndex, setMappingHoleIndex] = useState(0);
+  const [mappingData, setMappingData] = useState<HoleMapping[]>([]);
+  const [mappingGpsStatus, setMappingGpsStatus] = useState('');
+  const [addFeatureMenuOpen, setAddFeatureMenuOpen] = useState(false);
+  const [customFeatureName, setCustomFeatureName] = useState('');
+  const [manualCoordFeatureId, setManualCoordFeatureId] = useState<string | null>(null);
+  const [manualLat, setManualLat] = useState('');
+  const [manualLng, setManualLng] = useState('');
+
   // ---- DATA PERSISTENCE: Consolidated load/save with Supabase as primary ----
   const isInitialLoadComplete = React.useRef(false);
   const [isAppLoading, setIsAppLoading] = useState(true);
@@ -355,6 +395,7 @@ export default function App() {
           const mapped = coursesFromSupabase.map((c: any) => ({
             id: c.id, name: c.name, holes: c.holes || [],
             teeBoxes: c.teeBoxes || undefined,
+            holeMapping: c.holeMapping || undefined,
           }));
           setCourses(mapped);
           localStorage.setItem('golf_courses', JSON.stringify(mapped));
@@ -440,7 +481,7 @@ export default function App() {
         for (const course of courses) {
           await supabaseDb.saveCourse({
             id: course.id, name: course.name, location: undefined,
-            holes: course.holes, teeBoxes: course.teeBoxes,
+            holes: course.holes, teeBoxes: course.teeBoxes, holeMapping: course.holeMapping,
             created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
           });
         }
@@ -1062,6 +1103,11 @@ Requirements:
       courseToSave = { ...courseToSave, holes: defaultHoles, teeBoxes };
     }
 
+    // Merge mapping data if any
+    if (mappingData.length > 0) {
+      courseToSave = { ...courseToSave, holeMapping: mappingData };
+    }
+
     setCourses(prev => {
       const exists = prev.find(c => c.id === courseToSave.id);
       if (exists) {
@@ -1073,6 +1119,8 @@ Requirements:
     setIsCourseModalOpen(false);
     setEditingCourse(null);
     setEditingTeeBoxes([]);
+    setMappingData([]);
+    setIsMappingModeOpen(false);
   };
 
   const startManualCourse = (course?: Course) => {
@@ -1105,7 +1153,132 @@ Requirements:
         distances: Array(18).fill(0),
       }]);
     }
+    setIsMappingModeOpen(false);
+    setMappingData([]);
     setIsCourseModalOpen(true);
+  };
+
+  // --- Mapping Mode Functions ---
+
+  const initializeMappingData = (course: Course, teeBoxes: typeof editingTeeBoxes): HoleMapping[] => {
+    return course.holes.map((_, holeIdx) => {
+      const existingMapping = course.holeMapping?.[holeIdx];
+
+      // Tee box features sorted by distance descending (furthest first)
+      const teeFeatures: HoleFeature[] = [...teeBoxes]
+        .sort((a, b) => (b.distances[holeIdx] || 0) - (a.distances[holeIdx] || 0))
+        .map(tb => ({
+          id: `tee_${tb.color}_${holeIdx}`,
+          type: 'tee_box' as const,
+          name: `${tb.name} Tee`,
+          teeBoxColor: tb.color,
+          coordinates: existingMapping?.features.find(
+            f => f.type === 'tee_box' && f.teeBoxColor === tb.color
+          )?.coordinates,
+        }));
+
+      // Green features
+      const greenFeatures: HoleFeature[] = GREEN_FEATURES.map(name => ({
+        id: `green_${name.toLowerCase().replace(/\s/g, '_')}_${holeIdx}`,
+        type: 'green' as const,
+        name,
+        coordinates: existingMapping?.features.find(
+          f => f.type === 'green' && f.name === name
+        )?.coordinates,
+      }));
+
+      // Preserve existing hazard/custom features
+      const customFeatures = existingMapping?.features.filter(
+        f => f.type === 'hazard' || f.type === 'custom'
+      ) || [];
+
+      return {
+        holeNumber: holeIdx + 1,
+        features: [...teeFeatures, ...greenFeatures, ...customFeatures],
+      };
+    });
+  };
+
+  const openMappingMode = () => {
+    if (!editingCourse) return;
+    const data = initializeMappingData(editingCourse, editingTeeBoxes);
+    setMappingData(data);
+    setMappingHoleIndex(0);
+    setAddFeatureMenuOpen(false);
+    setCustomFeatureName('');
+    setManualCoordFeatureId(null);
+    setManualLat('');
+    setManualLng('');
+    setIsMappingModeOpen(true);
+  };
+
+  const captureCoordinates = (holeIdx: number, featureId: string) => {
+    if (!currentPos) {
+      setMappingGpsStatus('Waiting for GPS signal...');
+      setTimeout(() => setMappingGpsStatus(''), 3000);
+      return;
+    }
+    setMappingData(prev => {
+      const updated = [...prev];
+      const hole = { ...updated[holeIdx] };
+      hole.features = hole.features.map(f =>
+        f.id === featureId
+          ? { ...f, coordinates: { lat: currentPos.lat, lng: currentPos.lng } }
+          : f
+      );
+      updated[holeIdx] = hole;
+      return updated;
+    });
+    setMappingGpsStatus('Coordinates captured!');
+    setTimeout(() => setMappingGpsStatus(''), 2000);
+  };
+
+  const applyManualCoordinates = (holeIdx: number, featureId: string) => {
+    const lat = parseFloat(manualLat);
+    const lng = parseFloat(manualLng);
+    if (isNaN(lat) || isNaN(lng)) {
+      setMappingGpsStatus('Invalid coordinates');
+      setTimeout(() => setMappingGpsStatus(''), 2000);
+      return;
+    }
+    setMappingData(prev => {
+      const updated = [...prev];
+      const hole = { ...updated[holeIdx] };
+      hole.features = hole.features.map(f =>
+        f.id === featureId ? { ...f, coordinates: { lat, lng } } : f
+      );
+      updated[holeIdx] = hole;
+      return updated;
+    });
+    setManualCoordFeatureId(null);
+    setManualLat('');
+    setManualLng('');
+  };
+
+  const addMappingFeature = (holeIdx: number, name: string, type: 'hazard' | 'custom') => {
+    setMappingData(prev => {
+      const updated = [...prev];
+      const hole = { ...updated[holeIdx] };
+      hole.features = [...hole.features, {
+        id: `${type}_${name.toLowerCase().replace(/\s/g, '_')}_${holeIdx}_${Date.now()}`,
+        type,
+        name,
+      }];
+      updated[holeIdx] = hole;
+      return updated;
+    });
+    setAddFeatureMenuOpen(false);
+    setCustomFeatureName('');
+  };
+
+  const removeMappingFeature = (holeIdx: number, featureId: string) => {
+    setMappingData(prev => {
+      const updated = [...prev];
+      const hole = { ...updated[holeIdx] };
+      hole.features = hole.features.filter(f => f.id !== featureId);
+      updated[holeIdx] = hole;
+      return updated;
+    });
   };
 
   const deleteCourse = async (id: string) => {
@@ -2805,7 +2978,15 @@ Requirements:
                 </div>
               </div>
 
-              <div className="p-4 bg-stone-50 border-t border-stone-100">
+              <div className="p-4 bg-stone-50 border-t border-stone-100 space-y-2">
+                <button
+                  onClick={openMappingMode}
+                  disabled={!editingCourse.name.trim()}
+                  className="w-full bg-white border border-emerald-300 text-emerald-700 font-bold py-3 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-emerald-50 disabled:border-stone-200 disabled:text-stone-400"
+                >
+                  <MapPin size={20} />
+                  Map Course
+                </button>
                 <button
                   onClick={saveManualCourse}
                   disabled={!editingCourse.name.trim()}
@@ -2813,6 +2994,338 @@ Requirements:
                 >
                   <Save size={20} />
                   Save Course
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Mapping Mode Modal */}
+      <AnimatePresence>
+        {isMappingModeOpen && editingCourse && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-lg bg-white rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              {/* Header */}
+              <div className="p-4 border-b border-stone-100 bg-white sticky top-0 z-10">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setIsMappingModeOpen(false)}
+                      className="p-2 hover:bg-stone-100 rounded-full text-stone-400 transition-colors"
+                    >
+                      <ChevronLeft size={20} />
+                    </button>
+                    <div>
+                      <h2 className="text-lg font-bold">Map Course</h2>
+                      <p className="text-[10px] text-stone-400">{editingCourse.name}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsMappingModeOpen(false)}
+                    className="p-2 hover:bg-stone-100 rounded-full text-stone-400 transition-colors"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+                {/* Hole Navigator */}
+                <div className="flex items-center justify-center gap-4">
+                  <button
+                    onClick={() => { setMappingHoleIndex(prev => Math.max(0, prev - 1)); setManualCoordFeatureId(null); setAddFeatureMenuOpen(false); }}
+                    disabled={mappingHoleIndex === 0}
+                    className="p-2 rounded-full hover:bg-stone-100 disabled:opacity-30 transition-colors"
+                  >
+                    <ChevronLeft size={20} />
+                  </button>
+                  <span className="text-lg font-black text-stone-800">Hole {mappingHoleIndex + 1}</span>
+                  <button
+                    onClick={() => { setMappingHoleIndex(prev => Math.min(17, prev + 1)); setManualCoordFeatureId(null); setAddFeatureMenuOpen(false); }}
+                    disabled={mappingHoleIndex === 17}
+                    className="p-2 rounded-full hover:bg-stone-100 disabled:opacity-30 transition-colors"
+                  >
+                    <ChevronRight size={20} />
+                  </button>
+                </div>
+                {/* GPS Status */}
+                {mappingGpsStatus && (
+                  <p className={`text-center text-xs font-bold mt-2 ${mappingGpsStatus.includes('captured') || mappingGpsStatus.includes('Coordinates') ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {mappingGpsStatus}
+                  </p>
+                )}
+              </div>
+
+              {/* Feature List */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {mappingData[mappingHoleIndex] && (() => {
+                  const holeFeatures = mappingData[mappingHoleIndex].features;
+                  const teeFeatures = holeFeatures.filter(f => f.type === 'tee_box');
+                  const greenFeatures = holeFeatures.filter(f => f.type === 'green');
+                  const otherFeatures = holeFeatures.filter(f => f.type === 'hazard' || f.type === 'custom');
+
+                  return (
+                    <>
+                      {/* Tee Boxes Section */}
+                      {teeFeatures.length > 0 && (
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest ml-1">Tee Boxes</label>
+                          {teeFeatures.map(feature => {
+                            const tb = editingTeeBoxes.find(t => t.color === feature.teeBoxColor);
+                            const dist = tb?.distances[mappingHoleIndex] || 0;
+                            return (
+                              <div key={feature.id} className="bg-stone-50 rounded-xl border border-stone-100 p-3">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`w-4 h-4 rounded-full flex-shrink-0 ${TEE_BOX_COLORS[feature.teeBoxColor || ''] || 'bg-stone-300'}`} />
+                                    <span className="text-sm font-bold text-stone-700">{feature.name}</span>
+                                    {dist > 0 && <span className="text-[10px] text-stone-400">({dist} yds)</span>}
+                                  </div>
+                                  {feature.coordinates ? (
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">
+                                        {feature.coordinates.lat.toFixed(5)}, {feature.coordinates.lng.toFixed(5)}
+                                      </span>
+                                    </div>
+                                  ) : null}
+                                </div>
+                                <div className="flex gap-2 mt-2">
+                                  <button
+                                    onClick={() => captureCoordinates(mappingHoleIndex, feature.id)}
+                                    className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors flex items-center justify-center gap-1"
+                                  >
+                                    <Target size={12} />
+                                    {feature.coordinates ? 'Re-capture GPS' : 'Add GPS'}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      if (manualCoordFeatureId === feature.id) {
+                                        setManualCoordFeatureId(null);
+                                      } else {
+                                        setManualCoordFeatureId(feature.id);
+                                        setManualLat(feature.coordinates?.lat.toString() || '');
+                                        setManualLng(feature.coordinates?.lng.toString() || '');
+                                      }
+                                    }}
+                                    className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200 transition-colors flex items-center justify-center gap-1"
+                                  >
+                                    <Pencil size={12} />
+                                    {feature.coordinates ? 'Edit Manual' : 'Enter Manual'}
+                                  </button>
+                                </div>
+                                {manualCoordFeatureId === feature.id && (
+                                  <div className="mt-2 flex gap-2 items-end">
+                                    <div className="flex-1">
+                                      <label className="text-[9px] font-bold text-stone-400 uppercase">Lat</label>
+                                      <input type="text" value={manualLat} onChange={(e) => setManualLat(e.target.value)}
+                                        placeholder="43.65320" className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
+                                    </div>
+                                    <div className="flex-1">
+                                      <label className="text-[9px] font-bold text-stone-400 uppercase">Lng</label>
+                                      <input type="text" value={manualLng} onChange={(e) => setManualLng(e.target.value)}
+                                        placeholder="-79.38320" className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
+                                    </div>
+                                    <button onClick={() => applyManualCoordinates(mappingHoleIndex, feature.id)}
+                                      className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Check size={16} /></button>
+                                    <button onClick={() => setManualCoordFeatureId(null)}
+                                      className="p-1.5 bg-stone-200 text-stone-600 rounded-lg hover:bg-stone-300"><X size={16} /></button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Green Section */}
+                      {greenFeatures.length > 0 && (
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest ml-1">Green</label>
+                          {greenFeatures.map(feature => (
+                            <div key={feature.id} className="bg-stone-50 rounded-xl border border-stone-100 p-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-bold text-stone-700">{feature.name}</span>
+                                {feature.coordinates && (
+                                  <span className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">
+                                    {feature.coordinates.lat.toFixed(5)}, {feature.coordinates.lng.toFixed(5)}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex gap-2 mt-2">
+                                <button
+                                  onClick={() => captureCoordinates(mappingHoleIndex, feature.id)}
+                                  className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors flex items-center justify-center gap-1"
+                                >
+                                  <Target size={12} />
+                                  {feature.coordinates ? 'Re-capture GPS' : 'Add GPS'}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (manualCoordFeatureId === feature.id) {
+                                      setManualCoordFeatureId(null);
+                                    } else {
+                                      setManualCoordFeatureId(feature.id);
+                                      setManualLat(feature.coordinates?.lat.toString() || '');
+                                      setManualLng(feature.coordinates?.lng.toString() || '');
+                                    }
+                                  }}
+                                  className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200 transition-colors flex items-center justify-center gap-1"
+                                >
+                                  <Pencil size={12} />
+                                  {feature.coordinates ? 'Edit Manual' : 'Enter Manual'}
+                                </button>
+                              </div>
+                              {manualCoordFeatureId === feature.id && (
+                                <div className="mt-2 flex gap-2 items-end">
+                                  <div className="flex-1">
+                                    <label className="text-[9px] font-bold text-stone-400 uppercase">Lat</label>
+                                    <input type="text" value={manualLat} onChange={(e) => setManualLat(e.target.value)}
+                                      placeholder="43.65320" className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
+                                  </div>
+                                  <div className="flex-1">
+                                    <label className="text-[9px] font-bold text-stone-400 uppercase">Lng</label>
+                                    <input type="text" value={manualLng} onChange={(e) => setManualLng(e.target.value)}
+                                      placeholder="-79.38320" className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
+                                  </div>
+                                  <button onClick={() => applyManualCoordinates(mappingHoleIndex, feature.id)}
+                                    className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Check size={16} /></button>
+                                  <button onClick={() => setManualCoordFeatureId(null)}
+                                    className="p-1.5 bg-stone-200 text-stone-600 rounded-lg hover:bg-stone-300"><X size={16} /></button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Hazards & Custom Features Section */}
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-stone-400 uppercase tracking-widest ml-1">Hazards & Features</label>
+                        {otherFeatures.map(feature => (
+                          <div key={feature.id} className="bg-stone-50 rounded-xl border border-stone-100 p-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-bold text-stone-700">{feature.name}</span>
+                              <div className="flex items-center gap-1">
+                                {feature.coordinates && (
+                                  <span className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">
+                                    {feature.coordinates.lat.toFixed(5)}, {feature.coordinates.lng.toFixed(5)}
+                                  </span>
+                                )}
+                                <button onClick={() => removeMappingFeature(mappingHoleIndex, feature.id)}
+                                  className="p-1 text-stone-300 hover:text-red-500 transition-colors"><X size={14} /></button>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 mt-2">
+                              <button
+                                onClick={() => captureCoordinates(mappingHoleIndex, feature.id)}
+                                className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors flex items-center justify-center gap-1"
+                              >
+                                <Target size={12} />
+                                {feature.coordinates ? 'Re-capture GPS' : 'Add GPS'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (manualCoordFeatureId === feature.id) {
+                                    setManualCoordFeatureId(null);
+                                  } else {
+                                    setManualCoordFeatureId(feature.id);
+                                    setManualLat(feature.coordinates?.lat.toString() || '');
+                                    setManualLng(feature.coordinates?.lng.toString() || '');
+                                  }
+                                }}
+                                className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200 transition-colors flex items-center justify-center gap-1"
+                              >
+                                <Pencil size={12} />
+                                {feature.coordinates ? 'Edit Manual' : 'Enter Manual'}
+                              </button>
+                            </div>
+                            {manualCoordFeatureId === feature.id && (
+                              <div className="mt-2 flex gap-2 items-end">
+                                <div className="flex-1">
+                                  <label className="text-[9px] font-bold text-stone-400 uppercase">Lat</label>
+                                  <input type="text" value={manualLat} onChange={(e) => setManualLat(e.target.value)}
+                                    placeholder="43.65320" className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
+                                </div>
+                                <div className="flex-1">
+                                  <label className="text-[9px] font-bold text-stone-400 uppercase">Lng</label>
+                                  <input type="text" value={manualLng} onChange={(e) => setManualLng(e.target.value)}
+                                    placeholder="-79.38320" className="w-full bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
+                                </div>
+                                <button onClick={() => applyManualCoordinates(mappingHoleIndex, feature.id)}
+                                  className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Check size={16} /></button>
+                                <button onClick={() => setManualCoordFeatureId(null)}
+                                  className="p-1.5 bg-stone-200 text-stone-600 rounded-lg hover:bg-stone-300"><X size={16} /></button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+
+                        {/* Add Feature Button & Menu */}
+                        {!addFeatureMenuOpen ? (
+                          <button
+                            onClick={() => setAddFeatureMenuOpen(true)}
+                            className="w-full py-2.5 border-2 border-dashed border-stone-200 rounded-xl text-stone-400 font-bold text-xs flex items-center justify-center gap-1 hover:border-emerald-300 hover:text-emerald-600 transition-colors"
+                          >
+                            <Plus size={14} /> Add Feature
+                          </button>
+                        ) : (
+                          <div className="bg-white border border-stone-200 rounded-xl p-3 space-y-2">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Add Feature</span>
+                              <button onClick={() => { setAddFeatureMenuOpen(false); setCustomFeatureName(''); }}
+                                className="p-1 text-stone-400 hover:text-stone-600"><X size={14} /></button>
+                            </div>
+                            {PRESET_HAZARD_FEATURES.map(name => (
+                              <button key={name}
+                                onClick={() => addMappingFeature(mappingHoleIndex, name, 'hazard')}
+                                className="w-full text-left text-sm font-medium text-stone-700 py-2 px-3 rounded-lg hover:bg-emerald-50 hover:text-emerald-700 transition-colors"
+                              >
+                                {name}
+                              </button>
+                            ))}
+                            <div className="border-t border-stone-100 pt-2 mt-2">
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={customFeatureName}
+                                  onChange={(e) => setCustomFeatureName(e.target.value)}
+                                  placeholder="Custom feature name..."
+                                  className="flex-1 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                                <button
+                                  onClick={() => { if (customFeatureName.trim()) addMappingFeature(mappingHoleIndex, customFeatureName.trim(), 'custom'); }}
+                                  disabled={!customFeatureName.trim()}
+                                  className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm font-bold hover:bg-emerald-700 disabled:bg-stone-200 disabled:text-stone-400 transition-colors"
+                                >
+                                  Add
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-stone-50 border-t border-stone-100">
+                <button
+                  onClick={() => setIsMappingModeOpen(false)}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-2xl shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+                >
+                  <Check size={20} />
+                  Done
                 </button>
               </div>
             </motion.div>
