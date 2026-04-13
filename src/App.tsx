@@ -189,6 +189,18 @@ const DEFAULT_CLUBS: Club[] = [
 
 // --- Utils ---
 
+// Haversine distance between two lat/lng points, returns meters
+const haversineDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+  const R = 6371e3;
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lng2 - lng1) * Math.PI) / 180;
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
 const calculateDistance = (pos1: Position, pos2: Position): number => {
   const R = 6371e3; // Earth radius in meters
   const φ1 = (pos1.lat * Math.PI) / 180;
@@ -597,6 +609,68 @@ export default function App() {
 
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
+
+  // --- AUTO HOLE DETECTION ---
+  const nearTeeCount = React.useRef(0);
+  const [suggestedHole, setSuggestedHole] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!isRoundActive || !currentPos || !courseName) return;
+
+    // Find the active course with mapping data
+    const baseCourseName = courseName.replace(/\s*\(.*\)$/, '');
+    const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
+    if (!course?.holeMapping) return;
+
+    const TEE_PROXIMITY_METERS = 30;
+    const LOITER_THRESHOLD = 3; // consecutive position updates near tee
+
+    // Check each hole's tee box coordinates (only holes ahead of current)
+    let closestHole: number | null = null;
+    let closestDist = Infinity;
+
+    for (let holeIdx = 0; holeIdx < course.holeMapping.length; holeIdx++) {
+      const holeNum = holeIdx + 1;
+      if (holeNum <= currentHole) continue; // only look ahead
+
+      const mapping = course.holeMapping[holeIdx];
+      for (const feature of mapping.features) {
+        if (feature.type !== 'tee_box' || !feature.coordinates) continue;
+        const dist = haversineDistance(
+          currentPos.lat, currentPos.lng,
+          feature.coordinates.lat, feature.coordinates.lng
+        );
+        if (dist < TEE_PROXIMITY_METERS && dist < closestDist) {
+          closestDist = dist;
+          closestHole = holeNum;
+        }
+      }
+    }
+
+    if (closestHole && closestHole === currentHole + 1) {
+      nearTeeCount.current++;
+      if (nearTeeCount.current >= LOITER_THRESHOLD) {
+        setSuggestedHole(closestHole);
+      }
+    } else {
+      nearTeeCount.current = 0;
+      setSuggestedHole(null);
+    }
+  }, [currentPos, isRoundActive, courseName, currentHole, courses]);
+
+  const acceptHoleSuggestion = () => {
+    if (suggestedHole) {
+      changeHole(suggestedHole - currentHole);
+      setSuggestedHole(null);
+      nearTeeCount.current = 0;
+    }
+  };
+
+  const dismissHoleSuggestion = () => {
+    setSuggestedHole(null);
+    nearTeeCount.current = 0;
+  };
+
 // --- ATOMS3 BLUETOOTH HARDWARE LISTENER ---
   useEffect(() => {
     const handleHardwareButton = (event: KeyboardEvent) => {
@@ -1733,6 +1807,37 @@ Requirements:
               exit={{ opacity: 0, y: -10 }}
               className="space-y-2"
             >
+              {/* Auto Hole Detection Banner */}
+              <AnimatePresence>
+                {suggestedHole && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10, height: 0 }}
+                    animate={{ opacity: 1, y: 0, height: 'auto' }}
+                    exit={{ opacity: 0, y: -10, height: 0 }}
+                    className="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-2 flex-1">
+                      <MapPin size={16} className="text-amber-600 flex-shrink-0" />
+                      <p className="text-xs font-bold text-amber-700">You're near Hole {suggestedHole} tee box</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={acceptHoleSuggestion}
+                        className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors"
+                      >
+                        Go to #{suggestedHole}
+                      </button>
+                      <button
+                        onClick={dismissHoleSuggestion}
+                        className="p-1.5 text-stone-400 hover:text-stone-600 transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {/* Hole Header - Par & Distance at top */}
               <div className="text-center pb-1">
                 <div className="flex items-center justify-center gap-3">
