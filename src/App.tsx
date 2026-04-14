@@ -622,7 +622,7 @@ export default function App() {
     const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
     if (!course?.holeMapping) return;
 
-    const TEE_PROXIMITY_METERS = 30;
+    const TEE_PROXIMITY_METERS = 5;
     const LOITER_THRESHOLD = 3; // consecutive position updates near tee
 
     // Check each hole's tee box coordinates (only holes ahead of current)
