@@ -610,8 +610,21 @@ export default function App() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  // --- AUTO HOLE DETECTION ---
+  // --- AUTO HOLE DETECTION & TEE SHOT TRIGGER ---
   const nearTeeCount = React.useRef(0);
+  const nearCurrentTeeCount = React.useRef(0);
+
+  // Check if current hole has all required stats filled in
+  const isHoleComplete = (holeNum: number): boolean => {
+    const stats = holeStats[holeNum];
+    if (!stats) return false;
+    return (
+      stats.score > 0 &&
+      stats.putts >= 0 &&
+      stats.fairway !== null &&
+      stats.gir !== null
+    );
+  };
 
   useEffect(() => {
     if (!isRoundActive || !currentPos || !courseName) return;
@@ -624,7 +637,34 @@ export default function App() {
     const TEE_PROXIMITY_METERS = 5;
     const LOITER_THRESHOLD = 3; // consecutive position updates near tee
 
-    // Check each hole's tee box coordinates (only holes ahead of current)
+    // Check proximity to current hole's tee box (for auto-measuring)
+    const currentMapping = course.holeMapping[currentHole - 1];
+    if (currentMapping && !isTracking) {
+      let nearCurrentTee = false;
+      for (const feature of currentMapping.features) {
+        if (feature.type !== 'tee_box' || !feature.coordinates) continue;
+        const dist = haversineDistance(
+          currentPos.lat, currentPos.lng,
+          feature.coordinates.lat, feature.coordinates.lng
+        );
+        if (dist < TEE_PROXIMITY_METERS) {
+          nearCurrentTee = true;
+          break;
+        }
+      }
+      if (nearCurrentTee) {
+        nearCurrentTeeCount.current++;
+        if (nearCurrentTeeCount.current >= LOITER_THRESHOLD) {
+          handleStartDrive();
+          nearCurrentTeeCount.current = 0;
+        }
+      } else {
+        nearCurrentTeeCount.current = 0;
+      }
+    }
+
+    // Check proximity to next hole's tee box (for auto-advancing)
+    // Only advance if current hole stats are complete
     let closestHole: number | null = null;
     let closestDist = Infinity;
 
@@ -646,7 +686,7 @@ export default function App() {
       }
     }
 
-    if (closestHole && closestHole === currentHole + 1) {
+    if (closestHole && closestHole === currentHole + 1 && isHoleComplete(currentHole)) {
       nearTeeCount.current++;
       if (nearTeeCount.current >= LOITER_THRESHOLD) {
         changeHole(closestHole - currentHole);
@@ -655,7 +695,7 @@ export default function App() {
     } else {
       nearTeeCount.current = 0;
     }
-  }, [currentPos, isRoundActive, courseName, currentHole, courses]);
+  }, [currentPos, isRoundActive, courseName, currentHole, courses, isTracking, holeStats]);
 
 // --- ATOMS3 BLUETOOTH HARDWARE LISTENER ---
   useEffect(() => {
