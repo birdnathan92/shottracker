@@ -804,6 +804,32 @@ export default function App() {
     return course.holes[currentHole - 1].distance;
   };
 
+  const getDistancesToGreen = (): { front: number; middle: number; back: number } | null => {
+    if (!currentPos || !courseName) return null;
+    const baseCourseName = courseName.replace(/\s*\(.*\)$/, '');
+    const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
+    if (!course?.holeMapping) return null;
+
+    const mapping = course.holeMapping[currentHole - 1];
+    if (!mapping) return null;
+
+    const frontCoord = mapping.features.find(f => f.type === 'green' && f.name === 'Front of Green')?.coordinates;
+    const middleCoord = mapping.features.find(f => f.type === 'green' && f.name === 'Middle of Green')?.coordinates;
+    const backCoord = mapping.features.find(f => f.type === 'green' && f.name === 'Back of Green')?.coordinates;
+
+    if (!frontCoord && !middleCoord && !backCoord) return null;
+
+    const toYards = (meters: number) => Math.round(meters * 1.09361);
+    const toMetersUnit = (meters: number) => Math.round(meters);
+    const convert = unit === 'yards' ? toYards : toMetersUnit;
+
+    return {
+      front: frontCoord ? convert(haversineDistance(currentPos.lat, currentPos.lng, frontCoord.lat, frontCoord.lng)) : 0,
+      middle: middleCoord ? convert(haversineDistance(currentPos.lat, currentPos.lng, middleCoord.lat, middleCoord.lng)) : 0,
+      back: backCoord ? convert(haversineDistance(currentPos.lat, currentPos.lng, backCoord.lat, backCoord.lng)) : 0,
+    };
+  };
+
   const deleteDrive = async (id: string) => {
     // Delete from Supabase first
     if (isSupabaseAvailable()) {
@@ -2256,57 +2282,58 @@ Requirements:
                   </div>
                 )}
 
-                {/* Sand Save Row */}
-                <div className="flex items-center justify-between px-4 py-2.5">
-                  <span className="font-bold text-stone-700 text-sm">Sand Save</span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setStatDirectly('sandSave', true)}
-                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
-                        currentHoleData.sandSave === true
-                          ? 'bg-emerald-500 border-emerald-500 text-white'
-                          : 'bg-stone-100 border-stone-300 text-stone-400'
-                      }`}
-                    >
-                      <Check size={20} strokeWidth={3} />
-                    </button>
-                    <button
-                      onClick={() => setStatDirectly('sandSave', false)}
-                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
-                        currentHoleData.sandSave === false
-                          ? 'bg-stone-400 border-stone-400 text-white'
-                          : 'bg-stone-100 border-stone-300 text-stone-400'
-                      }`}
-                    >
-                      <X size={20} strokeWidth={3} />
-                    </button>
+                {/* Sand Save + Up & Down Row */}
+                <div className="flex items-center px-4 py-2.5 gap-4">
+                  <div className="flex-1 flex items-center justify-between">
+                    <span className="font-bold text-stone-700 text-xs">Sand Save</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setStatDirectly('sandSave', true)}
+                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                          currentHoleData.sandSave === true
+                            ? 'bg-emerald-500 border-emerald-500 text-white'
+                            : 'bg-stone-100 border-stone-300 text-stone-400'
+                        }`}
+                      >
+                        <Check size={16} strokeWidth={3} />
+                      </button>
+                      <button
+                        onClick={() => setStatDirectly('sandSave', false)}
+                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                          currentHoleData.sandSave === false
+                            ? 'bg-stone-400 border-stone-400 text-white'
+                            : 'bg-stone-100 border-stone-300 text-stone-400'
+                        }`}
+                      >
+                        <X size={16} strokeWidth={3} />
+                      </button>
+                    </div>
                   </div>
-                </div>
-
-                {/* Up & Down Row */}
-                <div className="flex items-center justify-between px-4 py-2.5">
-                  <span className="font-bold text-stone-700 text-sm">Up & Down</span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setStatDirectly('upAndDown', true)}
-                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
-                        currentHoleData.upAndDown === true
-                          ? 'bg-emerald-500 border-emerald-500 text-white'
-                          : 'bg-stone-100 border-stone-300 text-stone-400'
-                      }`}
-                    >
-                      <Check size={20} strokeWidth={3} />
-                    </button>
-                    <button
-                      onClick={() => setStatDirectly('upAndDown', false)}
-                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
-                        currentHoleData.upAndDown === false
-                          ? 'bg-stone-400 border-stone-400 text-white'
-                          : 'bg-stone-100 border-stone-300 text-stone-400'
-                      }`}
-                    >
-                      <X size={20} strokeWidth={3} />
-                    </button>
+                  <div className="w-px h-6 bg-stone-200" />
+                  <div className="flex-1 flex items-center justify-between">
+                    <span className="font-bold text-stone-700 text-xs">Up & Down</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setStatDirectly('upAndDown', true)}
+                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                          currentHoleData.upAndDown === true
+                            ? 'bg-emerald-500 border-emerald-500 text-white'
+                            : 'bg-stone-100 border-stone-300 text-stone-400'
+                        }`}
+                      >
+                        <Check size={16} strokeWidth={3} />
+                      </button>
+                      <button
+                        onClick={() => setStatDirectly('upAndDown', false)}
+                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                          currentHoleData.upAndDown === false
+                            ? 'bg-stone-400 border-stone-400 text-white'
+                            : 'bg-stone-100 border-stone-300 text-stone-400'
+                        }`}
+                      >
+                        <X size={16} strokeWidth={3} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2474,6 +2501,34 @@ Requirements:
                   </div>
                 )}
               </div>
+
+              {/* Distance to Green */}
+              {(() => {
+                const greenDist = getDistancesToGreen();
+                if (!greenDist) return null;
+                return (
+                  <div className="flex gap-2">
+                    {greenDist.front > 0 && (
+                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
+                        <span className="text-[10px] font-bold text-emerald-500 uppercase">F</span>
+                        <span className="text-sm font-black text-emerald-700">{greenDist.front}</span>
+                      </div>
+                    )}
+                    {greenDist.middle > 0 && (
+                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
+                        <span className="text-[10px] font-bold text-emerald-500 uppercase">M</span>
+                        <span className="text-sm font-black text-emerald-700">{greenDist.middle}</span>
+                      </div>
+                    )}
+                    {greenDist.back > 0 && (
+                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
+                        <span className="text-[10px] font-bold text-emerald-500 uppercase">B</span>
+                        <span className="text-sm font-black text-emerald-700">{greenDist.back}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Hole Navigation - Bottom */}
               <div className="flex gap-3">
