@@ -119,7 +119,7 @@ interface FeatureCoordinate {
 
 interface HoleFeature {
   id: string;
-  type: 'tee_box' | 'green' | 'hazard' | 'custom' | 'dogleg';
+  type: 'tee_box' | 'green' | 'hazard' | 'custom' | 'fairway';
   name: string;
   teeBoxColor?: string;
   coordinates?: FeatureCoordinate;
@@ -128,7 +128,6 @@ interface HoleFeature {
 interface HoleMapping {
   holeNumber: number;
   features: HoleFeature[];
-  isDogleg?: boolean;
 }
 
 interface Course {
@@ -256,7 +255,7 @@ const PRESET_HAZARD_FEATURES = [
   'Right Greenside Bunker',
 ] as const;
 
-const GREEN_FEATURES = ['Front of Green', 'Middle of Green', 'Back of Green'] as const;
+const GREEN_FEATURES = ['Front of Green', 'Back of Green'] as const;
 
 // Helper: safely parse localStorage
 function loadLocal<T>(key: string, fallback: T): T {
@@ -1295,11 +1294,8 @@ Requirements:
         )?.coordinates,
       }));
 
-      // Preserve existing dogleg pivot point
-      const doglegFeature = existingMapping?.features.find(f => f.type === 'dogleg');
-      const doglegFeatures: HoleFeature[] = existingMapping?.isDogleg && doglegFeature
-        ? [doglegFeature]
-        : [];
+      // Preserve existing fairway pivot points (in order)
+      const fairwayFeatures = existingMapping?.features.filter(f => f.type === 'fairway') || [];
 
       // Preserve existing hazard/custom features
       const customFeatures = existingMapping?.features.filter(
@@ -1308,8 +1304,7 @@ Requirements:
 
       return {
         holeNumber: holeIdx + 1,
-        features: [...teeFeatures, ...doglegFeatures, ...greenFeatures, ...customFeatures],
-        isDogleg: existingMapping?.isDogleg || false,
+        features: [...teeFeatures, ...fairwayFeatures, ...greenFeatures, ...customFeatures],
       };
     });
   };
@@ -1397,32 +1392,42 @@ Requirements:
     setCustomFeatureName('');
   };
 
-  const toggleDogleg = (holeIdx: number) => {
+  const addFairwayPoint = (holeIdx: number) => {
     setMappingData(prev => {
       const updated = [...prev];
       const hole = { ...updated[holeIdx] };
-      const wasDogleg = hole.isDogleg;
-      hole.isDogleg = !wasDogleg;
+      const existingFairways = hole.features.filter(f => f.type === 'fairway');
+      const newNum = existingFairways.length + 1;
+      const newFeature: HoleFeature = {
+        id: `fairway_${holeIdx}_${Date.now()}`,
+        type: 'fairway',
+        name: `Fairway ${newNum}`,
+      };
+      // Insert after last tee box or last fairway point, before green
+      const lastTeeOrFairwayIdx = hole.features.reduce(
+        (acc, f, i) => (f.type === 'tee_box' || f.type === 'fairway') ? i : acc, -1
+      );
+      const insertIdx = lastTeeOrFairwayIdx + 1;
+      hole.features = [
+        ...hole.features.slice(0, insertIdx),
+        newFeature,
+        ...hole.features.slice(insertIdx),
+      ];
+      updated[holeIdx] = hole;
+      return updated;
+    });
+  };
 
-      if (!wasDogleg) {
-        // Add dogleg pivot point after tee boxes, before green
-        const lastTeeIdx = hole.features.reduce((acc, f, i) => f.type === 'tee_box' ? i : acc, -1);
-        const pivotFeature: HoleFeature = {
-          id: `dogleg_pivot_${holeIdx}`,
-          type: 'dogleg',
-          name: 'Dogleg Pivot Point',
-        };
-        const insertIdx = lastTeeIdx + 1;
-        hole.features = [
-          ...hole.features.slice(0, insertIdx),
-          pivotFeature,
-          ...hole.features.slice(insertIdx),
-        ];
-      } else {
-        // Remove dogleg pivot point
-        hole.features = hole.features.filter(f => f.type !== 'dogleg');
-      }
-
+  const removeFairwayPoint = (holeIdx: number, featureId: string) => {
+    setMappingData(prev => {
+      const updated = [...prev];
+      const hole = { ...updated[holeIdx] };
+      hole.features = hole.features.filter(f => f.id !== featureId);
+      // Renumber remaining fairway points
+      let fairwayNum = 1;
+      hole.features = hole.features.map(f =>
+        f.type === 'fairway' ? { ...f, name: `Fairway ${fairwayNum++}` } : f
+      );
       updated[holeIdx] = hole;
       return updated;
     });
@@ -3214,20 +3219,6 @@ Requirements:
                     <ChevronRight size={20} />
                   </button>
                 </div>
-                {/* Dogleg Toggle */}
-                <div className="flex items-center justify-center mt-2">
-                  <button
-                    onClick={() => toggleDogleg(mappingHoleIndex)}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-                      mappingData[mappingHoleIndex]?.isDogleg
-                        ? 'bg-amber-100 text-amber-700 border border-amber-300'
-                        : 'bg-stone-100 text-stone-400 border border-stone-200 hover:bg-stone-200'
-                    }`}
-                  >
-                    <RotateCcw size={12} />
-                    {mappingData[mappingHoleIndex]?.isDogleg ? 'Dogleg' : 'Mark as Dogleg'}
-                  </button>
-                </div>
                 {/* GPS Status */}
                 {mappingGpsStatus && (
                   <p className={`text-center text-xs font-bold mt-2 ${mappingGpsStatus.includes('captured') || mappingGpsStatus.includes('Coordinates') ? 'text-emerald-600' : 'text-amber-600'}`}>
@@ -3241,7 +3232,7 @@ Requirements:
                 {mappingData[mappingHoleIndex] && (() => {
                   const holeFeatures = mappingData[mappingHoleIndex].features;
                   const teeFeatures = holeFeatures.filter(f => f.type === 'tee_box');
-                  const doglegFeature = holeFeatures.find(f => f.type === 'dogleg');
+                  const fairwayFeatures = holeFeatures.filter(f => f.type === 'fairway');
                   const greenFeatures = holeFeatures.filter(f => f.type === 'green');
                   const otherFeatures = holeFeatures.filter(f => f.type === 'hazard' || f.type === 'custom');
 
@@ -3313,56 +3304,68 @@ Requirements:
                         </div>
                       )}
 
-                      {/* Dogleg Pivot Point Section */}
-                      {doglegFeature && mappingData[mappingHoleIndex]?.isDogleg && (
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-amber-500 uppercase tracking-widest ml-1 flex items-center gap-1">
-                            <RotateCcw size={10} /> Dogleg Pivot Point
-                          </label>
-                          <div className="bg-amber-50 rounded-xl border border-amber-200 p-3">
+                      {/* Fairway Points Section */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-bold text-amber-500 uppercase tracking-widest ml-1">Fairway Points</label>
+                          <button
+                            onClick={() => addFairwayPoint(mappingHoleIndex)}
+                            className="flex items-center gap-1 text-[10px] font-bold text-amber-600 px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-100"
+                          >
+                            <Plus size={12} /> Add Point
+                          </button>
+                        </div>
+                        {fairwayFeatures.length === 0 && (
+                          <p className="text-[10px] text-stone-400 ml-1">No fairway points — add points for doglegs or curved holes</p>
+                        )}
+                        {fairwayFeatures.map(feature => (
+                          <div key={feature.id} className="bg-amber-50 rounded-xl border border-amber-200 p-3">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <span className="w-4 h-4 rounded-full bg-amber-400 flex-shrink-0" />
-                                <span className="text-sm font-bold text-stone-700">{doglegFeature.name}</span>
+                                <span className="text-sm font-bold text-stone-700">{feature.name}</span>
                               </div>
-                              {doglegFeature.coordinates && (
-                                <span className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">
-                                  {doglegFeature.coordinates.lat.toFixed(5)}, {doglegFeature.coordinates.lng.toFixed(5)}
-                                </span>
-                              )}
+                              <div className="flex items-center gap-1">
+                                {feature.coordinates && (
+                                  <span className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">
+                                    {feature.coordinates.lat.toFixed(5)}, {feature.coordinates.lng.toFixed(5)}
+                                  </span>
+                                )}
+                                <button onClick={() => removeFairwayPoint(mappingHoleIndex, feature.id)}
+                                  className="p-1 text-stone-300 hover:text-red-500 transition-colors"><X size={14} /></button>
+                              </div>
                             </div>
-                            <p className="text-[10px] text-amber-600 mt-1 mb-2">Center of fairway at the turn — distance will be calculated as Tee → Pivot → Green</p>
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 mt-2">
                               <button
-                                onClick={() => captureCoordinates(mappingHoleIndex, doglegFeature.id)}
+                                onClick={() => captureCoordinates(mappingHoleIndex, feature.id)}
                                 className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors flex items-center justify-center gap-1"
                               >
                                 <Target size={12} />
-                                {doglegFeature.coordinates ? 'Re-capture GPS' : 'Add GPS'}
+                                {feature.coordinates ? 'Re-capture GPS' : 'Add GPS'}
                               </button>
                               <button
                                 onClick={() => {
-                                  if (manualCoordFeatureId === doglegFeature.id) {
+                                  if (manualCoordFeatureId === feature.id) {
                                     setManualCoordFeatureId(null);
                                   } else {
-                                    setManualCoordFeatureId(doglegFeature.id);
+                                    setManualCoordFeatureId(feature.id);
                                     setManualDmsInput('');
                                   }
                                 }}
                                 className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200 transition-colors flex items-center justify-center gap-1"
                               >
                                 <Pencil size={12} />
-                                {doglegFeature.coordinates ? 'Edit Manual' : 'Enter Manual'}
+                                {feature.coordinates ? 'Edit Manual' : 'Enter Manual'}
                               </button>
                             </div>
-                            {manualCoordFeatureId === doglegFeature.id && (
+                            {manualCoordFeatureId === feature.id && (
                               <div className="mt-2 space-y-1.5">
                                 <label className="text-[9px] font-bold text-stone-400 uppercase">DMS Coordinates</label>
                                 <div className="flex gap-2">
                                   <input type="text" value={manualDmsInput} onChange={(e) => setManualDmsInput(e.target.value)}
                                     placeholder={'49°13\'55.16"N 123°12\'27.76"W'}
                                     className="flex-1 bg-white border border-stone-200 rounded-lg px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500" />
-                                  <button onClick={() => applyManualCoordinates(mappingHoleIndex, doglegFeature.id)}
+                                  <button onClick={() => applyManualCoordinates(mappingHoleIndex, feature.id)}
                                     className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Check size={16} /></button>
                                   <button onClick={() => setManualCoordFeatureId(null)}
                                     className="p-1.5 bg-stone-200 text-stone-600 rounded-lg hover:bg-stone-300"><X size={16} /></button>
@@ -3370,8 +3373,8 @@ Requirements:
                               </div>
                             )}
                           </div>
-                        </div>
-                      )}
+                        ))}
+                      </div>
 
                       {/* Green Section */}
                       {greenFeatures.length > 0 && (
