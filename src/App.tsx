@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
-import { supabaseDb } from './supabaseClient';
+import { supabaseDb, DbCourseDataPoint } from './supabaseClient';
 import { isSupabaseAvailable } from './useSupabaseSync';
 import { calculateHoleSG, calculateRoundSG, formatSG, sgColor, sgBgColor } from './strokesGainedCalc';
 import {
@@ -388,6 +388,7 @@ export default function App() {
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [importCsvText, setImportCsvText] = useState('');
   const [isMappingCollectionMode, setIsMappingCollectionMode] = useState(() => loadLocal('golf_mapping_collection_mode', false));
+  const [courseDataPoints, setCourseDataPoints] = useState<DbCourseDataPoint[]>([]);
 
   // ---- DATA PERSISTENCE: Consolidated load/save with Supabase as primary ----
   const isInitialLoadComplete = React.useRef(false);
@@ -497,6 +498,20 @@ export default function App() {
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_current_hole', JSON.stringify(currentHole)); }, [currentHole]);
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_course_name', JSON.stringify(courseName)); }, [courseName]);
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_mapping_collection_mode', JSON.stringify(isMappingCollectionMode)); }, [isMappingCollectionMode]);
+
+  // Load course data points for mapping mode refinement
+  useEffect(() => {
+    if (!isMappingCollectionMode || !isRoundActive || !courseName) {
+      setCourseDataPoints([]);
+      return;
+    }
+    const baseCourseName = courseName.replace(/\s*\(.*\)$/, '');
+    if (isSupabaseAvailable()) {
+      supabaseDb.getCourseDataPoints(baseCourseName)
+        .then(points => setCourseDataPoints(points as DbCourseDataPoint[]))
+        .catch(err => console.error('[MappingMode] Failed to load data points:', err));
+    }
+  }, [isMappingCollectionMode, isRoundActive, courseName]);
 
   // ---- Sync to Supabase (guarded: only after initial load completes) ----
   useEffect(() => {
@@ -957,6 +972,8 @@ export default function App() {
         await supabaseDb.saveCourseDataPoint(dataPoint);
       }
       console.log('[MappingMode] Saved data point:', dataPoint);
+      // Refresh data points so fairway width refinement updates within this round
+      setCourseDataPoints(prev => [dataPoint as DbCourseDataPoint, ...prev]);
     } catch (err) {
       console.error('[MappingMode] Failed to save data point:', err);
     }
@@ -1001,6 +1018,110 @@ export default function App() {
       middle: middleCoord ? convert(haversineDistance(currentPos.lat, currentPos.lng, middleCoord.lat, middleCoord.lng)) : 0,
       back: backCoord ? convert(haversineDistance(currentPos.lat, currentPos.lng, backCoord.lat, backCoord.lng)) : 0,
     };
+  };
+
+  // --- SURFACE DETECTION: Fairway / Rough / Green / Tee Box ---
+  const getUserSurfaceType = (): 'tee_box' | 'fairway' | 'rough' | 'green' | null => {
+    if (!currentPos || !courseName) return null;
+    const baseCourseName = courseName.replace(/\s*\(.*\)$/, '');
+    const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
+    if (!course?.holeMapping) return null;
+
+    const mapping = course.holeMapping[currentHole - 1];
+    if (!mapping) return null;
+
+    // Green check: distance to middle of green < 20 yards
+    const middleGreen = mapping.features.find(f => f.type === 'green' && f.name === 'Middle of Green')?.coordinates;
+    if (middleGreen) {
+      const distToGreen = haversineDistance(currentPos.lat, currentPos.lng, middleGreen.lat, middleGreen.lng) * 1.09361;
+      if (distToGreen < 20) return 'green';
+    }
+
+    // Tee box check: distance to selected tee box < 10 yards
+    const teeBoxMatch = courseName.match(/\(([^)]+)\)$/);
+    const selectedTeeBoxName = teeBoxMatch ? teeBoxMatch[1] : null;
+    const selectedTeeColor = selectedTeeBoxName
+      ? course.teeBoxes?.find(tb => tb.name === selectedTeeBoxName)?.color || null
+      : null;
+    const teeFeatures = mapping.features.filter(f => f.type === 'tee_box' && f.coordinates);
+    const selectedTee = selectedTeeColor
+      ? teeFeatures.find(f => f.teeBoxColor === selectedTeeColor)
+      : teeFeatures[0];
+    if (selectedTee?.coordinates) {
+      const distToTee = haversineDistance(currentPos.lat, currentPos.lng, selectedTee.coordinates.lat, selectedTee.coordinates.lng) * 1.09361;
+      if (distToTee < 10) return 'tee_box';
+    }
+
+    // Build centerline: tee → fairway points → middle green
+    const centerline: FeatureCoordinate[] = [];
+    if (selectedTee?.coordinates) centerline.push(selectedTee.coordinates);
+    mapping.features
+      .filter(f => f.type === 'fairway' && f.coordinates)
+      .forEach(f => centerline.push(f.coordinates!));
+    if (middleGreen) centerline.push(middleGreen);
+
+    if (centerline.length < 2) return null;
+
+    // Point-to-segment perpendicular distance using flat-earth approximation
+    const M_PER_DEG_LAT = 111320;
+    const M_PER_DEG_LNG = 111320 * Math.cos(currentPos.lat * Math.PI / 180);
+    const px = currentPos.lng * M_PER_DEG_LNG;
+    const py = currentPos.lat * M_PER_DEG_LAT;
+
+    let minPerpDist = Infinity;
+    for (let i = 0; i < centerline.length - 1; i++) {
+      const ax = centerline[i].lng * M_PER_DEG_LNG;
+      const ay = centerline[i].lat * M_PER_DEG_LAT;
+      const bx = centerline[i + 1].lng * M_PER_DEG_LNG;
+      const by = centerline[i + 1].lat * M_PER_DEG_LAT;
+
+      const dx = bx - ax, dy = by - ay;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq === 0) continue;
+
+      // Project point onto segment, clamp t to [0, 1]
+      const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+      const projX = ax + t * dx;
+      const projY = ay + t * dy;
+      const dist = Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+      if (dist < minPerpDist) minPerpDist = dist;
+    }
+
+    // Convert perpendicular distance to yards
+    const perpDistYards = minPerpDist * 1.09361;
+
+    // Default fairway half-width: 15 yards (30 total)
+    let fairwayHalfWidth = 15;
+
+    // Refine with collected data points if available
+    const holePoints = courseDataPoints.filter(dp => dp.hole_number === currentHole);
+    const fairwayPoints = holePoints.filter(dp => dp.area_type === 'fairway');
+    if (fairwayPoints.length >= 3) {
+      // Compute perpendicular distances of known fairway points from centerline
+      const fairwayPerpDists = fairwayPoints.map(fp => {
+        const fpx = fp.lng * M_PER_DEG_LNG;
+        const fpy = fp.lat * M_PER_DEG_LAT;
+        let minD = Infinity;
+        for (let i = 0; i < centerline.length - 1; i++) {
+          const ax = centerline[i].lng * M_PER_DEG_LNG;
+          const ay = centerline[i].lat * M_PER_DEG_LAT;
+          const bx = centerline[i + 1].lng * M_PER_DEG_LNG;
+          const by = centerline[i + 1].lat * M_PER_DEG_LAT;
+          const ddx = bx - ax, ddy = by - ay;
+          const ls = ddx * ddx + ddy * ddy;
+          if (ls === 0) continue;
+          const t = Math.max(0, Math.min(1, ((fpx - ax) * ddx + (fpy - ay) * ddy) / ls));
+          const d = Math.sqrt((fpx - (ax + t * ddx)) ** 2 + (fpy - (ay + t * ddy)) ** 2);
+          if (d < minD) minD = d;
+        }
+        return minD * 1.09361; // to yards
+      });
+      // Use max fairway point distance + 10% buffer, capped between 10-25 yards
+      const maxFairwayDist = Math.max(...fairwayPerpDists);
+      fairwayHalfWidth = Math.min(25, Math.max(10, maxFairwayDist * 1.1));
+    }
+
+    return perpDistYards <= fairwayHalfWidth ? 'fairway' : 'rough';
   };
 
   const deleteDrive = async (id: string) => {
@@ -2759,6 +2880,26 @@ Requirements:
                   </div>
                 )}
               </div>
+
+              {/* Surface Type Indicator (Mapping Mode only) */}
+              {isMappingCollectionMode && (() => {
+                const surface = getUserSurfaceType();
+                if (!surface) return null;
+                const styles: Record<string, string> = {
+                  fairway: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+                  rough: 'bg-amber-100 text-amber-700 border-amber-200',
+                  green: 'bg-green-100 text-green-700 border-green-200',
+                  tee_box: 'bg-stone-100 text-stone-700 border-stone-200',
+                };
+                const labels: Record<string, string> = {
+                  fairway: 'Fairway', rough: 'Rough', green: 'Green', tee_box: 'Tee Box',
+                };
+                return (
+                  <div className={`w-full text-center py-1.5 rounded-xl border text-xs font-bold ${styles[surface]}`}>
+                    {labels[surface]}
+                  </div>
+                );
+              })()}
 
               {/* Distance to Green */}
               {(() => {
