@@ -255,7 +255,7 @@ const PRESET_HAZARD_FEATURES = [
   'Right Greenside Bunker',
 ] as const;
 
-const GREEN_FEATURES = ['Front of Green', 'Back of Green'] as const;
+const GREEN_FEATURES = ['Front of Green', 'Middle of Green', 'Back of Green'] as const;
 
 // Helper: safely parse localStorage
 function loadLocal<T>(key: string, fallback: T): T {
