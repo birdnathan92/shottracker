@@ -383,6 +383,8 @@ export default function App() {
   const [customFeatureName, setCustomFeatureName] = useState('');
   const [manualCoordFeatureId, setManualCoordFeatureId] = useState<string | null>(null);
   const [manualDmsInput, setManualDmsInput] = useState('');
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importCsvText, setImportCsvText] = useState('');
 
   // ---- DATA PERSISTENCE: Consolidated load/save with Supabase as primary ----
   const isInitialLoadComplete = React.useRef(false);
@@ -1354,6 +1356,151 @@ Requirements:
       return { lat, lng };
     }
     return null;
+  };
+
+  const importCsvCoordinates = () => {
+    if (!importCsvText.trim() || !editingCourse) return;
+
+    // Parse CSV: rows are feature labels, columns are holes 1-18
+    // Expected format: Label,Hole1,Hole2,...,Hole18
+    // Each cell is a DMS coordinate like 49°13'55.16"N 123°12'27.76"W
+    const lines = importCsvText.trim().split('\n').map(line => {
+      // Parse CSV respecting quoted fields (DMS coords contain commas in some formats)
+      const cells: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (inQuotes && line[i + 1] === '"') {
+            current += '"';
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (ch === ',' && !inQuotes) {
+          cells.push(current.trim());
+          current = '';
+        } else {
+          current += ch;
+        }
+      }
+      cells.push(current.trim());
+      return cells;
+    });
+
+    if (lines.length < 2) {
+      setMappingGpsStatus('Invalid CSV format');
+      setTimeout(() => setMappingGpsStatus(''), 3000);
+      return;
+    }
+
+    // First row is headers: Hole, 1, 2, 3, ... 18
+    const headerRow = lines[0];
+    const numHoles = Math.min(headerRow.length - 1, 18);
+
+    // Build mapping data from CSV rows
+    const newMappingData: HoleMapping[] = editingCourse.holes.map((_, holeIdx) => ({
+      holeNumber: holeIdx + 1,
+      features: [],
+    }));
+
+    // Tee box color mapping for label matching
+    const teeColorMap: Record<string, string> = {
+      'black': 'black', 'blue': 'blue', 'white': 'white',
+      'red': 'red', 'gold': 'gold', 'green': 'green',
+    };
+
+    for (let rowIdx = 1; rowIdx < lines.length; rowIdx++) {
+      const row = lines[rowIdx];
+      const label = row[0]?.toLowerCase().trim() || '';
+      if (!label) continue;
+
+      for (let holeIdx = 0; holeIdx < numHoles; holeIdx++) {
+        const cellValue = row[holeIdx + 1]?.trim();
+        if (!cellValue) continue;
+
+        const coords = parseDmsCoordinates(cellValue);
+        if (!coords) continue;
+
+        let feature: HoleFeature | null = null;
+
+        // Detect feature type from label
+        if (label.includes('black') || label.includes('blue') || label.includes('white') ||
+            label.includes('red') || label.includes('gold') || (label.includes('green') && label.includes('tee'))) {
+          // Tee box
+          const colorKey = Object.keys(teeColorMap).find(c => label.includes(c)) || 'white';
+          feature = {
+            id: `tee_${colorKey}_${holeIdx}`,
+            type: 'tee_box',
+            name: `${colorKey.charAt(0).toUpperCase() + colorKey.slice(1)} Tee`,
+            teeBoxColor: colorKey,
+            coordinates: coords,
+          };
+        } else if (label.includes('fairway')) {
+          // Fairway point
+          const numMatch = label.match(/(\d+)/);
+          const num = numMatch ? parseInt(numMatch[1]) : (newMappingData[holeIdx].features.filter(f => f.type === 'fairway').length + 1);
+          feature = {
+            id: `fairway_${holeIdx}_${num}_${Date.now() + rowIdx}`,
+            type: 'fairway',
+            name: `Fairway ${num}`,
+            coordinates: coords,
+          };
+        } else if (label.includes('front')) {
+          feature = {
+            id: `green_front_of_green_${holeIdx}`,
+            type: 'green',
+            name: 'Front of Green',
+            coordinates: coords,
+          };
+        } else if (label.includes('middle') || label.includes('center')) {
+          feature = {
+            id: `green_middle_of_green_${holeIdx}`,
+            type: 'green',
+            name: 'Middle of Green',
+            coordinates: coords,
+          };
+        } else if (label.includes('back') || label.includes('rear')) {
+          feature = {
+            id: `green_back_of_green_${holeIdx}`,
+            type: 'green',
+            name: 'Back of Green',
+            coordinates: coords,
+          };
+        }
+
+        if (feature) {
+          // Replace existing feature with same id, or add new
+          const existingIdx = newMappingData[holeIdx].features.findIndex(f => f.id === feature!.id);
+          if (existingIdx >= 0) {
+            newMappingData[holeIdx].features[existingIdx] = feature;
+          } else {
+            newMappingData[holeIdx].features.push(feature);
+          }
+        }
+      }
+    }
+
+    // Sort features per hole: tee boxes (by distance desc), fairway points, green
+    const typeOrder: Record<string, number> = { tee_box: 0, fairway: 1, green: 2, hazard: 3, custom: 4 };
+    const greenOrder: Record<string, number> = { 'Front of Green': 0, 'Middle of Green': 1, 'Back of Green': 2 };
+    for (const hole of newMappingData) {
+      hole.features.sort((a, b) => {
+        const orderDiff = (typeOrder[a.type] || 99) - (typeOrder[b.type] || 99);
+        if (orderDiff !== 0) return orderDiff;
+        if (a.type === 'green' && b.type === 'green') {
+          return (greenOrder[a.name] || 0) - (greenOrder[b.name] || 0);
+        }
+        return 0;
+      });
+    }
+
+    setMappingData(newMappingData);
+    setIsImportModalOpen(false);
+    setImportCsvText('');
+    setMappingGpsStatus(`Imported coordinates for ${numHoles} holes!`);
+    setTimeout(() => setMappingGpsStatus(''), 3000);
   };
 
   const applyManualCoordinates = (holeIdx: number, featureId: string) => {
@@ -3173,12 +3320,20 @@ Requirements:
                       <p className="text-[10px] text-stone-400">{editingCourse.name}</p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setIsMappingModeOpen(false)}
-                    className="p-2 hover:bg-stone-100 rounded-full text-stone-400 transition-colors"
-                  >
-                    <X size={20} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setIsImportModalOpen(true)}
+                      className="px-2.5 py-1.5 text-[10px] font-bold bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      Import CSV
+                    </button>
+                    <button
+                      onClick={() => setIsMappingModeOpen(false)}
+                      className="p-2 hover:bg-stone-100 rounded-full text-stone-400 transition-colors"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
                 </div>
                 {/* Hole Navigator */}
                 <div className="flex items-center justify-center gap-4">
@@ -3525,6 +3680,61 @@ Requirements:
                 >
                   <Check size={20} />
                   Done
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Import CSV Modal */}
+      <AnimatePresence>
+        {isImportModalOpen && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsImportModalOpen(false)}
+              className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-lg bg-white rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+            >
+              <div className="p-4 border-b border-stone-100 flex items-center justify-between">
+                <h2 className="text-lg font-bold">Import Coordinates from CSV</h2>
+                <button onClick={() => setIsImportModalOpen(false)}
+                  className="p-2 hover:bg-stone-100 rounded-full text-stone-400 transition-colors">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700 space-y-1">
+                  <p className="font-bold">Expected CSV format:</p>
+                  <p>First row: <code className="bg-blue-100 px-1 rounded">Hole,1,2,3,...,18</code></p>
+                  <p>Rows: <code className="bg-blue-100 px-1 rounded">Black,coord,coord,...</code></p>
+                  <p>Labels: Black, Blue, White, Red, Gold (tees), Fairway 1/2/3, Front, Middle, Back (green)</p>
+                  <p>Coordinates in DMS: <code className="bg-blue-100 px-1 rounded">49°13&apos;55.16&quot;N 123°12&apos;27.76&quot;W</code></p>
+                </div>
+                <textarea
+                  value={importCsvText}
+                  onChange={(e) => setImportCsvText(e.target.value)}
+                  placeholder={'Hole,1,2,3,...,18\nBlack,49°13\'55.16"N 123°12\'27.76"W,...\nBlue,...\nWhite,...\nFairway 1,...\nFront,...\nMiddle,...\nBack,...'}
+                  rows={10}
+                  className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500 resize-y"
+                />
+              </div>
+              <div className="p-4 bg-stone-50 border-t border-stone-100">
+                <button
+                  onClick={importCsvCoordinates}
+                  disabled={!importCsvText.trim()}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-300 text-white font-bold py-3 rounded-2xl shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+                >
+                  <Check size={20} />
+                  Import Coordinates
                 </button>
               </div>
             </motion.div>
