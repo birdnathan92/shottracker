@@ -31,7 +31,8 @@ import {
   Search,
   Loader2,
   Home,
-  BarChart3
+  BarChart3,
+  Menu
 } from 'lucide-react';
 
 // --- Custom Icons ---
@@ -384,6 +385,7 @@ export default function App() {
   const [manualCoordFeatureId, setManualCoordFeatureId] = useState<string | null>(null);
   const [manualDmsInput, setManualDmsInput] = useState('');
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [importCsvText, setImportCsvText] = useState('');
 
   // ---- DATA PERSISTENCE: Consolidated load/save with Supabase as primary ----
@@ -1767,51 +1769,125 @@ Requirements:
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 font-sans selection:bg-emerald-100">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-stone-200 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {/* Sync Status Dot */}
-          <div
-            className={`w-2.5 h-2.5 rounded-full ${
-              syncStatus === 'connected' ? 'bg-emerald-500' :
-              syncStatus === 'error' ? 'bg-red-500 animate-pulse' :
-              syncStatus === 'offline' ? 'bg-amber-500' : 'bg-stone-300'
-            }`}
-            title={syncStatus === 'connected' ? 'Synced to cloud' : syncStatus === 'error' ? 'Database error' : syncStatus === 'offline' ? 'Offline mode' : 'Unknown'}
-          />
-          {courseName && (
-            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
-              {courseName}
-            </span>
-          )}
-        </div>
-        <div className="flex gap-1">
+      {/* Header - compact on tracker, full on other views */}
+      {view === 'tracker' ? (
+        <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-stone-200 px-4 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div
+              className={`w-2.5 h-2.5 rounded-full ${
+                syncStatus === 'connected' ? 'bg-emerald-500' :
+                syncStatus === 'error' ? 'bg-red-500 animate-pulse' :
+                syncStatus === 'offline' ? 'bg-amber-500' : 'bg-stone-300'
+              }`}
+            />
+            {courseName && (
+              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                {courseName}
+              </span>
+            )}
+          </div>
           <button
-            onClick={() => setView('home')}
-            className={`p-2 rounded-full transition-colors ${view === 'home' ? 'bg-emerald-100 text-emerald-700' : 'text-stone-500 hover:bg-stone-100'}`}
+            onClick={() => setIsSideMenuOpen(true)}
+            className="p-2 rounded-full text-stone-500 hover:bg-stone-100 transition-colors"
           >
-            <Home size={20} />
+            <Menu size={22} />
           </button>
-          <button 
-            onClick={() => setView('tracker')}
-            className={`p-2 rounded-full transition-colors ${view === 'tracker' ? 'bg-emerald-100 text-emerald-700' : 'text-stone-500 hover:bg-stone-100'}`}
-          >
-            <Pencil size={20} />
-          </button>
-          <button
-            onClick={() => setView('history')}
-            className={`p-2 rounded-full transition-colors ${view === 'history' ? 'bg-emerald-100 text-emerald-700' : 'text-stone-500 hover:bg-stone-100'}`}
-          >
-            <BarChart3 size={20} />
-          </button>
-          <button 
-            onClick={() => setView('settings')}
-            className={`p-2 rounded-full transition-colors ${view === 'settings' ? 'bg-emerald-100 text-emerald-700' : 'text-stone-500 hover:bg-stone-100'}`}
-          >
-            <Settings size={20} />
-          </button>
-        </div>
-      </header>
+        </header>
+      ) : (
+        <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-stone-200 px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div
+              className={`w-2.5 h-2.5 rounded-full ${
+                syncStatus === 'connected' ? 'bg-emerald-500' :
+                syncStatus === 'error' ? 'bg-red-500 animate-pulse' :
+                syncStatus === 'offline' ? 'bg-amber-500' : 'bg-stone-300'
+              }`}
+              title={syncStatus === 'connected' ? 'Synced to cloud' : syncStatus === 'error' ? 'Database error' : syncStatus === 'offline' ? 'Offline mode' : 'Unknown'}
+            />
+            {courseName && (
+              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                {courseName}
+              </span>
+            )}
+          </div>
+          <div className="flex gap-1">
+            <button
+              onClick={() => setView('home')}
+              className={`p-2 rounded-full transition-colors ${view === 'home' ? 'bg-emerald-100 text-emerald-700' : 'text-stone-500 hover:bg-stone-100'}`}
+            >
+              <Home size={20} />
+            </button>
+            <button
+              onClick={() => setView('tracker')}
+              className={`p-2 rounded-full transition-colors ${view === 'tracker' ? 'bg-emerald-100 text-emerald-700' : 'text-stone-500 hover:bg-stone-100'}`}
+            >
+              <Pencil size={20} />
+            </button>
+            <button
+              onClick={() => setView('history')}
+              className={`p-2 rounded-full transition-colors ${view === 'history' ? 'bg-emerald-100 text-emerald-700' : 'text-stone-500 hover:bg-stone-100'}`}
+            >
+              <BarChart3 size={20} />
+            </button>
+            <button
+              onClick={() => setView('settings')}
+              className={`p-2 rounded-full transition-colors ${view === 'settings' ? 'bg-emerald-100 text-emerald-700' : 'text-stone-500 hover:bg-stone-100'}`}
+            >
+              <Settings size={20} />
+            </button>
+          </div>
+        </header>
+      )}
+
+      {/* Slide-out Side Menu */}
+      <AnimatePresence>
+        {isSideMenuOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsSideMenuOpen(false)}
+              className="fixed inset-0 z-[200] bg-stone-900/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed top-0 right-0 bottom-0 z-[201] w-64 bg-white shadow-2xl flex flex-col"
+            >
+              <div className="flex items-center justify-between p-4 border-b border-stone-100">
+                <span className="font-bold text-stone-800">Menu</span>
+                <button onClick={() => setIsSideMenuOpen(false)} className="p-2 hover:bg-stone-100 rounded-full text-stone-400">
+                  <X size={20} />
+                </button>
+              </div>
+              <nav className="flex-1 p-3 space-y-1">
+                {([
+                  { key: 'home' as const, label: 'Home', icon: <Home size={20} /> },
+                  { key: 'tracker' as const, label: 'Scorecard', icon: <Pencil size={20} /> },
+                  { key: 'history' as const, label: 'Stats & History', icon: <BarChart3 size={20} /> },
+                  { key: 'settings' as const, label: 'Settings', icon: <Settings size={20} /> },
+                ]).map(item => (
+                  <button
+                    key={item.key}
+                    onClick={() => { setView(item.key); setIsSideMenuOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${
+                      view === item.key
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'text-stone-600 hover:bg-stone-50'
+                    }`}
+                  >
+                    {item.icon}
+                    {item.label}
+                  </button>
+                ))}
+              </nav>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Sync Error Banner */}
       {syncStatus === 'error' && (
