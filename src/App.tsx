@@ -1361,11 +1361,18 @@ Requirements:
   const importCsvCoordinates = () => {
     if (!importCsvText.trim() || !editingCourse) return;
 
-    // Parse CSV: rows are feature labels, columns are holes 1-18
-    // Expected format: Label,Hole1,Hole2,...,Hole18
+    // Parse tab-separated or comma-separated data
+    // Google Sheets copies as tab-separated; CSV files use commas
     // Each cell is a DMS coordinate like 49°13'55.16"N 123°12'27.76"W
-    const lines = importCsvText.trim().split('\n').map(line => {
-      // Parse CSV respecting quoted fields (DMS coords contain commas in some formats)
+    const rawLines = importCsvText.trim().split('\n');
+    // Auto-detect delimiter: if first line has tabs, use tabs; otherwise commas
+    const delimiter = rawLines[0].includes('\t') ? '\t' : ',';
+
+    const lines = rawLines.map(line => {
+      if (delimiter === '\t') {
+        return line.split('\t').map(c => c.replace(/^"|"$/g, '').trim());
+      }
+      // CSV: parse respecting quoted fields
       const cells: string[] = [];
       let current = '';
       let inQuotes = false;
@@ -3713,10 +3720,10 @@ Requirements:
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700 space-y-1">
-                  <p className="font-bold">Expected CSV format:</p>
-                  <p>First row: <code className="bg-blue-100 px-1 rounded">Hole,1,2,3,...,18</code></p>
-                  <p>Rows: <code className="bg-blue-100 px-1 rounded">Black,coord,coord,...</code></p>
-                  <p>Labels: Black, Blue, White, Red, Gold (tees), Fairway 1/2/3, Front, Middle, Back (green)</p>
+                  <p className="font-bold">Paste from Google Sheets or CSV:</p>
+                  <p>Copy cells directly from a spreadsheet — tabs and commas both work</p>
+                  <p>First row: header with hole numbers</p>
+                  <p>Row labels: Black, Blue, White (tees), Fairway 1/2/3, Front, Middle, Back (green)</p>
                   <p>Coordinates in DMS: <code className="bg-blue-100 px-1 rounded">49°13&apos;55.16&quot;N 123°12&apos;27.76&quot;W</code></p>
                 </div>
                 <textarea
