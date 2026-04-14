@@ -612,7 +612,6 @@ export default function App() {
 
   // --- AUTO HOLE DETECTION ---
   const nearTeeCount = React.useRef(0);
-  const [suggestedHole, setSuggestedHole] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isRoundActive || !currentPos || !courseName) return;
@@ -650,26 +649,13 @@ export default function App() {
     if (closestHole && closestHole === currentHole + 1) {
       nearTeeCount.current++;
       if (nearTeeCount.current >= LOITER_THRESHOLD) {
-        setSuggestedHole(closestHole);
+        changeHole(closestHole - currentHole);
+        nearTeeCount.current = 0;
       }
     } else {
       nearTeeCount.current = 0;
-      setSuggestedHole(null);
     }
   }, [currentPos, isRoundActive, courseName, currentHole, courses]);
-
-  const acceptHoleSuggestion = () => {
-    if (suggestedHole) {
-      changeHole(suggestedHole - currentHole);
-      setSuggestedHole(null);
-      nearTeeCount.current = 0;
-    }
-  };
-
-  const dismissHoleSuggestion = () => {
-    setSuggestedHole(null);
-    nearTeeCount.current = 0;
-  };
 
 // --- ATOMS3 BLUETOOTH HARDWARE LISTENER ---
   useEffect(() => {
@@ -1807,37 +1793,6 @@ Requirements:
               exit={{ opacity: 0, y: -10 }}
               className="space-y-2"
             >
-              {/* Auto Hole Detection Banner */}
-              <AnimatePresence>
-                {suggestedHole && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10, height: 0 }}
-                    animate={{ opacity: 1, y: 0, height: 'auto' }}
-                    exit={{ opacity: 0, y: -10, height: 0 }}
-                    className="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex items-center justify-between gap-3"
-                  >
-                    <div className="flex items-center gap-2 flex-1">
-                      <MapPin size={16} className="text-amber-600 flex-shrink-0" />
-                      <p className="text-xs font-bold text-amber-700">You're near Hole {suggestedHole} tee box</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={acceptHoleSuggestion}
-                        className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors"
-                      >
-                        Go to #{suggestedHole}
-                      </button>
-                      <button
-                        onClick={dismissHoleSuggestion}
-                        className="p-1.5 text-stone-400 hover:text-stone-600 transition-colors"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
               {/* Hole Header - Par & Distance at top */}
               <div className="text-center pb-1">
                 <div className="flex items-center justify-center gap-3">
