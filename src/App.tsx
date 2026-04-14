@@ -2748,34 +2748,13 @@ Requirements:
                 <div className="bg-white rounded-2xl border border-stone-100 p-6 space-y-4">
                   <h3 className="font-semibold text-stone-900">Course Management</h3>
                   
-                  <div className="space-y-3">
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <input 
-                          type="text"
-                          placeholder="Search Course (e.g. Pebble Beach)"
-                          value={courseSearch}
-                          onChange={(e) => setCourseSearch(e.target.value)}
-                          className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                        />
-                      </div>
-                      <button 
-                        onClick={importCoursePars}
-                        disabled={isSearchingCourse || !courseSearch}
-                        className="bg-emerald-600 text-white p-3 rounded-xl hover:bg-emerald-700 disabled:bg-stone-200 transition-colors"
-                      >
-                        {isSearchingCourse ? <Loader2 size={20} className="animate-spin" /> : <Search size={20} />}
-                      </button>
-                    </div>
-                    
-                    <button 
-                      onClick={() => startManualCourse()}
-                      className="w-full py-3 bg-white border border-stone-200 text-stone-600 font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-stone-50 transition-colors text-sm"
-                    >
-                      <Plus size={18} />
-                      Manual Entry
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => startManualCourse()}
+                    className="w-full py-3 bg-white border border-stone-200 text-stone-600 font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-stone-50 transition-colors text-sm"
+                  >
+                    <Plus size={18} />
+                    Manual Entry
+                  </button>
 
                   {courses.length > 0 && (
                     <div className="pt-4 space-y-2">
