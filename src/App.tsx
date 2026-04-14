@@ -387,6 +387,7 @@ export default function App() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [importCsvText, setImportCsvText] = useState('');
+  const [isMappingCollectionMode, setIsMappingCollectionMode] = useState(() => loadLocal('golf_mapping_collection_mode', false));
 
   // ---- DATA PERSISTENCE: Consolidated load/save with Supabase as primary ----
   const isInitialLoadComplete = React.useRef(false);
@@ -495,6 +496,7 @@ export default function App() {
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_is_round_active', JSON.stringify(isRoundActive)); }, [isRoundActive]);
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_current_hole', JSON.stringify(currentHole)); }, [currentHole]);
   useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_course_name', JSON.stringify(courseName)); }, [courseName]);
+  useEffect(() => { if (isInitialLoadComplete.current) localStorage.setItem('golf_mapping_collection_mode', JSON.stringify(isMappingCollectionMode)); }, [isMappingCollectionMode]);
 
   // ---- Sync to Supabase (guarded: only after initial load completes) ----
   useEffect(() => {
@@ -616,6 +618,9 @@ export default function App() {
   // --- AUTO HOLE DETECTION & TEE SHOT TRIGGER ---
   const nearTeeCount = React.useRef(0);
   const nearCurrentTeeCount = React.useRef(0);
+  const lastMovedPos = React.useRef<Position | null>(null);
+  const lastMovedTime = React.useRef<number>(Date.now());
+  const autoStopTriggered = React.useRef(false);
 
   // Check if current hole has all required stats filled in
   const isHoleComplete = (holeNum: number): boolean => {
@@ -637,15 +642,24 @@ export default function App() {
     const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
     if (!course?.holeMapping) return;
 
-    const TEE_PROXIMITY_METERS = 5;
+    const TEE_PROXIMITY_METERS = 3;
     const LOITER_THRESHOLD = 3; // consecutive position updates near tee
 
-    // Check proximity to current hole's tee box (for auto-measuring)
+    // Determine the selected tee box color from courseName (e.g., "Course (Blue)" → "Blue")
+    const teeBoxMatch = courseName.match(/\(([^)]+)\)$/);
+    const selectedTeeBoxName = teeBoxMatch ? teeBoxMatch[1] : null;
+    const selectedTeeColor = selectedTeeBoxName
+      ? course.teeBoxes?.find(tb => tb.name === selectedTeeBoxName)?.color || null
+      : null;
+
+    // Check proximity to current hole's selected tee box (for auto-measuring)
     const currentMapping = course.holeMapping[currentHole - 1];
     if (currentMapping && !isTracking) {
       let nearCurrentTee = false;
       for (const feature of currentMapping.features) {
         if (feature.type !== 'tee_box' || !feature.coordinates) continue;
+        // Only match the selected tee box color, or any tee if no specific selection
+        if (selectedTeeColor && feature.teeBoxColor !== selectedTeeColor) continue;
         const dist = haversineDistance(
           currentPos.lat, currentPos.lng,
           feature.coordinates.lat, feature.coordinates.lng
@@ -656,8 +670,10 @@ export default function App() {
         }
       }
       if (nearCurrentTee) {
+        // Only auto-start if previous hole stats are complete (or it's hole 1)
+        const prevHoleComplete = currentHole === 1 || isHoleComplete(currentHole - 1);
         nearCurrentTeeCount.current++;
-        if (nearCurrentTeeCount.current >= LOITER_THRESHOLD) {
+        if (nearCurrentTeeCount.current >= LOITER_THRESHOLD && prevHoleComplete) {
           handleStartDrive();
           nearCurrentTeeCount.current = 0;
         }
@@ -700,6 +716,64 @@ export default function App() {
     }
   }, [currentPos, isRoundActive, courseName, currentHole, courses, isTracking, holeStats]);
 
+  // --- AUTO-STOP TEE SHOT: loitering 30s near typical club distance ---
+  useEffect(() => {
+    if (!isTracking || !currentPos || !startPos) {
+      // Reset refs when not tracking
+      lastMovedPos.current = null;
+      lastMovedTime.current = Date.now();
+      autoStopTriggered.current = false;
+      return;
+    }
+
+    const MOVEMENT_THRESHOLD_METERS = 3; // less than 3m = "not moving"
+    const LOITER_SECONDS = 30;
+    const DISTANCE_TOLERANCE_YARDS = 20;
+
+    // Get typical distance for selected club (in yards)
+    const selectedClub = bag.find(c => c.id === selectedClubId);
+    const typicalDistance = selectedClub?.avgDistance || 0;
+
+    if (typicalDistance === 0) return; // no club data, skip auto-stop
+
+    // Current shot distance in yards
+    const shotDistanceMeters = haversineDistance(startPos.lat, startPos.lng, currentPos.lat, currentPos.lng);
+    const shotDistanceYards = shotDistanceMeters * 1.09361;
+
+    // Check if within ±20 yards of typical distance
+    const withinRange = Math.abs(shotDistanceYards - typicalDistance) <= DISTANCE_TOLERANCE_YARDS;
+
+    if (!withinRange) {
+      // Not in range, reset loiter timer
+      lastMovedPos.current = currentPos;
+      lastMovedTime.current = Date.now();
+      return;
+    }
+
+    // Check if user has moved since last check
+    if (lastMovedPos.current) {
+      const moved = haversineDistance(
+        lastMovedPos.current.lat, lastMovedPos.current.lng,
+        currentPos.lat, currentPos.lng
+      );
+      if (moved > MOVEMENT_THRESHOLD_METERS) {
+        // User moved, reset timer
+        lastMovedPos.current = currentPos;
+        lastMovedTime.current = Date.now();
+      }
+    } else {
+      lastMovedPos.current = currentPos;
+      lastMovedTime.current = Date.now();
+    }
+
+    // Check if loitered long enough
+    const loiterDuration = (Date.now() - lastMovedTime.current) / 1000;
+    if (loiterDuration >= LOITER_SECONDS && !autoStopTriggered.current) {
+      autoStopTriggered.current = true;
+      handleMarkBall();
+    }
+  }, [currentPos, isTracking, startPos, bag, selectedClubId]);
+
 // --- ATOMS3 BLUETOOTH HARDWARE LISTENER ---
   useEffect(() => {
     const handleHardwareButton = (event: KeyboardEvent) => {
@@ -715,10 +789,14 @@ export default function App() {
         event.preventDefault(); // Prevent screen jumping
 
         // Smart Toggle: Find which button is currently on the screen and click it
+        const markShotBtn = document.getElementById('mark-shot-btn');
         const measureBtn = document.getElementById('measure-btn');
         const markBallBtn = document.getElementById('mark-ball-btn');
 
-        if (measureBtn) {
+        // In mapping collection mode, Enter also triggers Mark Shot
+        if (markShotBtn) {
+          markShotBtn.click();
+        } else if (measureBtn) {
           measureBtn.click();
         } else if (markBallBtn) {
           markBallBtn.click();
@@ -789,6 +867,99 @@ export default function App() {
   const handleReset = () => {
     setStartPos(null);
     setIsTracking(false);
+  };
+
+  // --- MAPPING COLLECTION MODE: Mark Shot ---
+  const handleMarkShot = async () => {
+    if (!currentPos || !isMappingCollectionMode || !courseName) return;
+
+    const baseCourseName = courseName.replace(/\s*\(.*\)$/, '');
+    const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
+    const currentStats = holeStats[currentHole] || { fairway: null, gir: null, sandSave: null };
+
+    // Determine area type by analyzing current stats and proximity to preset coordinates
+    let areaType: 'tee_box' | 'fairway' | 'rough' | 'green' | 'bunker' = 'rough'; // default
+
+    // Find closest preset coordinate and its type
+    let closestPresetType: string | null = null;
+    let closestPresetDist = Infinity;
+
+    if (course?.holeMapping) {
+      const mapping = course.holeMapping[currentHole - 1];
+      if (mapping) {
+        for (const feature of mapping.features) {
+          if (!feature.coordinates) continue;
+          const dist = haversineDistance(
+            currentPos.lat, currentPos.lng,
+            feature.coordinates.lat, feature.coordinates.lng
+          );
+          if (dist < closestPresetDist) {
+            closestPresetDist = dist;
+            closestPresetType = feature.type;
+            if (feature.type === 'green' && feature.name === 'Middle of Green') {
+              closestPresetType = 'middle_green';
+            }
+          }
+        }
+      }
+    }
+
+    // Classification logic:
+    // 1. Sand save true/false + mark shot → bunker
+    if (currentStats.sandSave === true || currentStats.sandSave === false) {
+      areaType = 'bunker';
+    }
+    // 2. Closest to tee box preset → tee box
+    else if (closestPresetType === 'tee_box' && closestPresetDist < 30) {
+      areaType = 'tee_box';
+    }
+    // 3. GIR true + closest to middle of green → green
+    else if (currentStats.gir === true && (closestPresetType === 'middle_green' || closestPresetType === 'green')) {
+      areaType = 'green';
+    }
+    // 4. GIR false + closest to green → rough (not green)
+    else if (currentStats.gir === false && (closestPresetType === 'middle_green' || closestPresetType === 'green')) {
+      areaType = 'rough';
+    }
+    // 5. Fairway true + closest to fairway → fairway
+    else if (currentStats.fairway === true && closestPresetType === 'fairway') {
+      areaType = 'fairway';
+    }
+    // 6. Fairway false + closest to fairway → rough
+    else if (currentStats.fairway === false && closestPresetType === 'fairway') {
+      areaType = 'rough';
+    }
+    // 7. Fairway true (general) → fairway
+    else if (currentStats.fairway === true) {
+      areaType = 'fairway';
+    }
+    // 8. Default → rough
+    else {
+      areaType = 'rough';
+    }
+
+    const selectedClub = bag.find(c => c.id === selectedClubId)?.name || 'Unknown';
+
+    const dataPoint = {
+      id: crypto.randomUUID(),
+      course_name: baseCourseName,
+      hole_number: currentHole,
+      lat: currentPos.lat,
+      lng: currentPos.lng,
+      accuracy: currentPos.accuracy,
+      area_type: areaType,
+      club: selectedClub,
+    };
+
+    // Save to Supabase
+    try {
+      if (isSupabaseAvailable()) {
+        await supabaseDb.saveCourseDataPoint(dataPoint);
+      }
+      console.log('[MappingMode] Saved data point:', dataPoint);
+    } catch (err) {
+      console.error('[MappingMode] Failed to save data point:', err);
+    }
   };
 
   // Returns the hole distance in YARDS (course data is stored in yards)
@@ -2517,15 +2688,26 @@ Requirements:
                         Set Approach Distance
                       </button>
                     )}
-                    <button
-                    id="measure-btn"
-                      onClick={handleStartDrive}
-            
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-200 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/10 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
-                    >
-                      <Target size={18} />
-                      Measure Tee Shot
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        id="measure-btn"
+                        onClick={handleStartDrive}
+                        className={`${isMappingCollectionMode ? 'flex-1' : 'w-full'} bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-200 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/10 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm`}
+                      >
+                        <Target size={18} />
+                        Measure Tee Shot
+                      </button>
+                      {isMappingCollectionMode && (
+                        <button
+                          id="mark-shot-btn"
+                          onClick={handleMarkShot}
+                          className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-xl shadow-lg shadow-amber-500/10 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm"
+                        >
+                          <MapPin size={18} />
+                          Mark Shot
+                        </button>
+                      )}
+                    </div>
                   </>
                 ) : (
                   <div className="space-y-2">
@@ -2683,13 +2865,14 @@ Requirements:
                       const par45Holes = holes.filter(h => h.par > 3);
                       const par45Played = par45Holes.length;
 
-                      const fairwayHits = par45Holes.filter(h => h.teeAccuracy === 'center').length;
+                      const fairwayHits = par45Holes.filter(h => h.fairway === true).length;
                       const leftMisses = par45Holes.filter(h => h.teeAccuracy === 'left').length;
                       const rightMisses = par45Holes.filter(h => h.teeAccuracy === 'right').length;
 
                       const girHits = holes.filter(h => h.gir).length;
                       const upAndDowns = holes.filter(h => h.upAndDown).length;
-                      const sandSaves = holes.filter(h => h.sandSave).length;
+                      const sandSaveOpportunities = holes.filter(h => h.sandSave !== null).length;
+                      const sandSaveSuccesses = holes.filter(h => h.sandSave === true).length;
 
                       const approachLeft = holes.filter(h => h.approachAccuracy === 'left').length;
                       const approachRight = holes.filter(h => h.approachAccuracy === 'right').length;
@@ -2728,7 +2911,7 @@ Requirements:
                         { label: 'Right Tendency', value: formatPct(rightMisses, par45Played) },
                         { label: 'GIR', value: formatPct(girHits, holesPlayed) },
                         { label: 'Scrambling', value: scramblingPct },
-                        { label: 'Sand Saves', value: formatPct(sandSaves, holesPlayed) },
+                        { label: 'Sand Saves', value: formatPct(sandSaveSuccesses, sandSaveOpportunities) },
                         { label: 'Missed Green: Left', value: formatPct(approachLeft, holesPlayed) },
                         { label: 'Missed Green: Right', value: formatPct(approachRight, holesPlayed) },
                         { label: 'Missed Green: Short', value: formatPct(approachShort, holesPlayed) },
@@ -3088,6 +3271,26 @@ Requirements:
                       Meters
                     </button>
                   </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-stone-100 p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-stone-900">Mapping Mode</h3>
+                      <p className="text-xs text-stone-400 mt-1">Collect GPS data points during rounds to build course surface maps</p>
+                    </div>
+                    <button
+                      onClick={() => setIsMappingCollectionMode(!isMappingCollectionMode)}
+                      className={`relative w-12 h-7 rounded-full transition-colors ${isMappingCollectionMode ? 'bg-amber-500' : 'bg-stone-300'}`}
+                    >
+                      <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${isMappingCollectionMode ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+                  {isMappingCollectionMode && (
+                    <p className="text-xs text-amber-600 bg-amber-50 rounded-lg p-2">
+                      📍 Active — "Mark Shot" button will appear on the scoring page. Press Enter as a shortcut.
+                    </p>
+                  )}
                 </div>
 
                 <button

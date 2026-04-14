@@ -73,6 +73,19 @@ export interface DbClub {
   updated_at?: string;
 }
 
+export interface DbCourseDataPoint {
+  id: string;
+  course_name: string;
+  hole_number: number;
+  lat: number;
+  lng: number;
+  accuracy: number;
+  area_type: 'tee_box' | 'fairway' | 'rough' | 'green' | 'bunker';
+  shot_number?: number;
+  club?: string;
+  created_at?: string;
+}
+
 // Database operation functions
 export const supabaseDb = {
   // Rounds operations
@@ -284,5 +297,36 @@ export const supabaseDb = {
       return typeof data.bag_data === 'string' ? JSON.parse(data.bag_data) : data.bag_data;
     }
     return null;
+  },
+
+  // Course Data Points operations (Mapping Mode collected coordinates)
+  async saveCourseDataPoint(point: DbCourseDataPoint) {
+    const { data, error } = await supabase
+      .from('course_data_points')
+      .insert(point)
+      .select();
+    if (error) {
+      console.error('[Supabase] saveCourseDataPoint error:', error);
+      throw error;
+    }
+    return data?.[0];
+  },
+
+  async getCourseDataPoints(courseName?: string) {
+    let query = supabase.from('course_data_points').select('*');
+    if (courseName) {
+      query = query.eq('course_name', courseName);
+    }
+    const { data, error } = await query.order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+
+  async deleteCourseDataPoint(id: string) {
+    const { error } = await supabase
+      .from('course_data_points')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
   },
 };

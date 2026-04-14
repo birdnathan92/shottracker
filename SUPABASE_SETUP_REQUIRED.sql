@@ -144,6 +144,31 @@ DO $$ BEGIN
 END $$;
 
 -- ============================================================================
+-- COURSE_DATA_POINTS TABLE (Mapping Mode collected GPS coordinates)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS course_data_points (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_name TEXT NOT NULL,
+  hole_number INTEGER NOT NULL,
+  lat DOUBLE PRECISION NOT NULL,
+  lng DOUBLE PRECISION NOT NULL,
+  accuracy DOUBLE PRECISION DEFAULT 0,
+  area_type TEXT NOT NULL CHECK (area_type IN ('tee_box', 'fairway', 'rough', 'green', 'bunker')),
+  shot_number INTEGER,
+  club TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_data_points_course ON course_data_points(course_name);
+CREATE INDEX IF NOT EXISTS idx_course_data_points_hole ON course_data_points(course_name, hole_number);
+ALTER TABLE course_data_points ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'course_data_points' AND policyname = 'Allow all access to course_data_points') THEN
+    CREATE POLICY "Allow all access to course_data_points" ON course_data_points FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
+-- ============================================================================
 -- SETUP COMPLETE
 -- ============================================================================
 -- All tables created (if they didn't exist) with proper schemas and RLS policies.
