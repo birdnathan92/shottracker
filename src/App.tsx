@@ -375,6 +375,9 @@ export default function App() {
   // Editing tee boxes for manual course entry
   const [editingTeeBoxes, setEditingTeeBoxes] = useState<{ name: string; color: string; slope: number; courseRating: number; distances: number[] }[]>([]);
 
+  // Auto-start toast notification
+  const [autoStartToast, setAutoStartToast] = useState(false);
+
   // Mapping mode state
   const [isMappingModeOpen, setIsMappingModeOpen] = useState(false);
   const [mappingHoleIndex, setMappingHoleIndex] = useState(0);
@@ -658,7 +661,7 @@ export default function App() {
     const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
     if (!course?.holeMapping) return;
 
-    const TEE_PROXIMITY_METERS = 3;
+    const TEE_PROXIMITY_METERS = 10;
     const LOITER_THRESHOLD = 3; // consecutive position updates near tee
 
     // Determine the selected tee box color from courseName (e.g., "Course (Blue)" → "Blue")
@@ -686,12 +689,12 @@ export default function App() {
         }
       }
       if (nearCurrentTee) {
-        // Only auto-start if previous hole stats are complete (or it's hole 1)
-        const prevHoleComplete = currentHole === 1 || isHoleComplete(currentHole - 1);
         nearCurrentTeeCount.current++;
-        if (nearCurrentTeeCount.current >= LOITER_THRESHOLD && prevHoleComplete) {
+        if (nearCurrentTeeCount.current >= LOITER_THRESHOLD) {
           handleStartDrive();
           nearCurrentTeeCount.current = 0;
+          setAutoStartToast(true);
+          setTimeout(() => setAutoStartToast(false), 3000);
         }
       } else {
         nearCurrentTeeCount.current = 0;
@@ -2798,6 +2801,17 @@ Requirements:
                         <Minus size={16} />
                         Set Approach Distance
                       </button>
+                    )}
+                    {autoStartToast && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-semibold px-3 py-2 rounded-xl"
+                      >
+                        <Target size={15} />
+                        Tracking started — near tee box
+                      </motion.div>
                     )}
                     <div className="flex gap-2">
                       <button
