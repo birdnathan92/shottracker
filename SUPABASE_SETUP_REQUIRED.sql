@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS course_data_points (
   lat DOUBLE PRECISION NOT NULL,
   lng DOUBLE PRECISION NOT NULL,
   accuracy DOUBLE PRECISION DEFAULT 0,
-  area_type TEXT NOT NULL CHECK (area_type IN ('tee_box', 'fairway', 'rough', 'green', 'bunker')),
+  area_type TEXT NOT NULL CHECK (area_type IN ('tee_box', 'fairway', 'rough', 'green', 'bunker', 'fairway_bunker', 'greenside_bunker')),
   shot_number INTEGER,
   club TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

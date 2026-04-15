@@ -80,7 +80,7 @@ export interface DbCourseDataPoint {
   lat: number;
   lng: number;
   accuracy: number;
-  area_type: 'tee_box' | 'fairway' | 'rough' | 'green' | 'bunker';
+  area_type: 'tee_box' | 'fairway' | 'rough' | 'green' | 'bunker' | 'fairway_bunker' | 'greenside_bunker';
   shot_number?: number;
   club?: string;
   created_at?: string;

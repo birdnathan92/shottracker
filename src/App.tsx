@@ -389,6 +389,7 @@ export default function App() {
   const [importCsvText, setImportCsvText] = useState('');
   const [isMappingCollectionMode, setIsMappingCollectionMode] = useState(() => loadLocal('golf_mapping_collection_mode', false));
   const [courseDataPoints, setCourseDataPoints] = useState<DbCourseDataPoint[]>([]);
+  const [surfaceOverride, setSurfaceOverride] = useState<string | null>(null);
 
   // ---- DATA PERSISTENCE: Consolidated load/save with Supabase as primary ----
   const isInitialLoadComplete = React.useRef(false);
@@ -892,65 +893,53 @@ export default function App() {
     const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
     const currentStats = holeStats[currentHole] || { fairway: null, gir: null, sandSave: null };
 
-    // Determine area type by analyzing current stats and proximity to preset coordinates
-    let areaType: 'tee_box' | 'fairway' | 'rough' | 'green' | 'bunker' = 'rough'; // default
+    // Determine area type: user override takes priority, then auto-classification
+    type AreaType = 'tee_box' | 'fairway' | 'rough' | 'green' | 'bunker' | 'fairway_bunker' | 'greenside_bunker';
+    let areaType: AreaType = 'rough'; // default
 
-    // Find closest preset coordinate and its type
-    let closestPresetType: string | null = null;
-    let closestPresetDist = Infinity;
+    if (surfaceOverride) {
+      areaType = surfaceOverride as AreaType;
+    } else {
+      // Auto-classify from stats and proximity to preset coordinates
+      let closestPresetType: string | null = null;
+      let closestPresetDist = Infinity;
 
-    if (course?.holeMapping) {
-      const mapping = course.holeMapping[currentHole - 1];
-      if (mapping) {
-        for (const feature of mapping.features) {
-          if (!feature.coordinates) continue;
-          const dist = haversineDistance(
-            currentPos.lat, currentPos.lng,
-            feature.coordinates.lat, feature.coordinates.lng
-          );
-          if (dist < closestPresetDist) {
-            closestPresetDist = dist;
-            closestPresetType = feature.type;
-            if (feature.type === 'green' && feature.name === 'Middle of Green') {
-              closestPresetType = 'middle_green';
+      if (course?.holeMapping) {
+        const mapping = course.holeMapping[currentHole - 1];
+        if (mapping) {
+          for (const feature of mapping.features) {
+            if (!feature.coordinates) continue;
+            const dist = haversineDistance(
+              currentPos.lat, currentPos.lng,
+              feature.coordinates.lat, feature.coordinates.lng
+            );
+            if (dist < closestPresetDist) {
+              closestPresetDist = dist;
+              closestPresetType = feature.type;
+              if (feature.type === 'green' && feature.name === 'Middle of Green') {
+                closestPresetType = 'middle_green';
+              }
             }
           }
         }
       }
-    }
 
-    // Classification logic:
-    // 1. Sand save true/false + mark shot → bunker
-    if (currentStats.sandSave === true || currentStats.sandSave === false) {
-      areaType = 'bunker';
-    }
-    // 2. Closest to tee box preset → tee box
-    else if (closestPresetType === 'tee_box' && closestPresetDist < 30) {
-      areaType = 'tee_box';
-    }
-    // 3. GIR true + closest to middle of green → green
-    else if (currentStats.gir === true && (closestPresetType === 'middle_green' || closestPresetType === 'green')) {
-      areaType = 'green';
-    }
-    // 4. GIR false + closest to green → rough (not green)
-    else if (currentStats.gir === false && (closestPresetType === 'middle_green' || closestPresetType === 'green')) {
-      areaType = 'rough';
-    }
-    // 5. Fairway true + closest to fairway → fairway
-    else if (currentStats.fairway === true && closestPresetType === 'fairway') {
-      areaType = 'fairway';
-    }
-    // 6. Fairway false + closest to fairway → rough
-    else if (currentStats.fairway === false && closestPresetType === 'fairway') {
-      areaType = 'rough';
-    }
-    // 7. Fairway true (general) → fairway
-    else if (currentStats.fairway === true) {
-      areaType = 'fairway';
-    }
-    // 8. Default → rough
-    else {
-      areaType = 'rough';
+      // Classification logic:
+      if (currentStats.sandSave === true || currentStats.sandSave === false) {
+        areaType = 'bunker';
+      } else if (closestPresetType === 'tee_box' && closestPresetDist < 30) {
+        areaType = 'tee_box';
+      } else if (currentStats.gir === true && (closestPresetType === 'middle_green' || closestPresetType === 'green')) {
+        areaType = 'green';
+      } else if (currentStats.gir === false && (closestPresetType === 'middle_green' || closestPresetType === 'green')) {
+        areaType = 'rough';
+      } else if (currentStats.fairway === true && closestPresetType === 'fairway') {
+        areaType = 'fairway';
+      } else if (currentStats.fairway === false && closestPresetType === 'fairway') {
+        areaType = 'rough';
+      } else if (currentStats.fairway === true) {
+        areaType = 'fairway';
+      }
     }
 
     const selectedClub = bag.find(c => c.id === selectedClubId)?.name || 'Unknown';
@@ -1021,7 +1010,7 @@ export default function App() {
   };
 
   // --- SURFACE DETECTION: Fairway / Rough / Green / Tee Box ---
-  const getUserSurfaceType = (): 'tee_box' | 'fairway' | 'rough' | 'green' | null => {
+  const getUserSurfaceType = (): 'tee_box' | 'fairway' | 'rough' | 'green' | 'fairway_bunker' | 'greenside_bunker' | null => {
     if (!currentPos || !courseName) return null;
     const baseCourseName = courseName.replace(/\s*\(.*\)$/, '');
     const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
@@ -1319,6 +1308,7 @@ export default function App() {
     setLastDriveDistance(null);
     setApproachDistanceOverride(null);
     setHasManuallySelectedApproachClub(false);
+    setSurfaceOverride(null);
 
     // Restore club selections if the next hole has saved clubs, otherwise default
     const nextHoleData = holeStats[nextHole];
@@ -2881,22 +2871,42 @@ Requirements:
                 )}
               </div>
 
-              {/* Surface Type Indicator (Mapping Mode only) */}
+              {/* Surface Type Selector (Mapping Mode only) */}
               {isMappingCollectionMode && (() => {
-                const surface = getUserSurfaceType();
-                if (!surface) return null;
+                const autoSurface = getUserSurfaceType();
+                const activeSurface = surfaceOverride || autoSurface || 'rough';
                 const styles: Record<string, string> = {
-                  fairway: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-                  rough: 'bg-amber-100 text-amber-700 border-amber-200',
-                  green: 'bg-green-100 text-green-700 border-green-200',
-                  tee_box: 'bg-stone-100 text-stone-700 border-stone-200',
-                };
-                const labels: Record<string, string> = {
-                  fairway: 'Fairway', rough: 'Rough', green: 'Green', tee_box: 'Tee Box',
+                  tee_box: 'bg-stone-100 text-stone-700 border-stone-300',
+                  fairway: 'bg-emerald-100 text-emerald-700 border-emerald-300',
+                  rough: 'bg-amber-100 text-amber-700 border-amber-300',
+                  green: 'bg-green-100 text-green-700 border-green-300',
+                  bunker: 'bg-yellow-100 text-yellow-700 border-yellow-300',
+                  fairway_bunker: 'bg-yellow-100 text-yellow-700 border-yellow-300',
+                  greenside_bunker: 'bg-yellow-100 text-yellow-700 border-yellow-300',
                 };
                 return (
-                  <div className={`w-full text-center py-1.5 rounded-xl border text-xs font-bold ${styles[surface]}`}>
-                    {labels[surface]}
+                  <div className={`flex items-center gap-2 w-full rounded-xl border py-1.5 px-3 ${styles[activeSurface]}`}>
+                    <span className="text-[9px] font-bold uppercase tracking-wider opacity-70 whitespace-nowrap">Surface</span>
+                    <select
+                      value={activeSurface}
+                      onChange={(e) => setSurfaceOverride(e.target.value === (autoSurface || 'rough') ? null : e.target.value)}
+                      className="flex-1 bg-transparent text-xs font-bold text-center appearance-none cursor-pointer outline-none"
+                    >
+                      <option value="tee_box">Tee Box{autoSurface === 'tee_box' ? ' (auto)' : ''}</option>
+                      <option value="fairway">Fairway{autoSurface === 'fairway' ? ' (auto)' : ''}</option>
+                      <option value="rough">Rough{autoSurface === 'rough' ? ' (auto)' : ''}</option>
+                      <option value="green">Green{autoSurface === 'green' ? ' (auto)' : ''}</option>
+                      <option value="fairway_bunker">Fairway Bunker</option>
+                      <option value="greenside_bunker">Greenside Bunker</option>
+                    </select>
+                    {surfaceOverride && (
+                      <button
+                        onClick={() => setSurfaceOverride(null)}
+                        className="text-[9px] opacity-60 hover:opacity-100"
+                      >
+                        <RotateCcw size={12} />
+                      </button>
+                    )}
                   </div>
                 );
               })()}
