@@ -1093,6 +1093,46 @@ export default function App() {
     } catch (err) {
       console.error('[MappingMode] Failed to save data point:', err);
     }
+
+    // Self-mapping: if surface is Green and no green coords exist for this hole yet,
+    // capture this GPS position as the Middle of Green for the course mapping.
+    if (areaType === 'green' && course) {
+      const mappingArr = course.holeMapping || [];
+      const currentMapping = mappingArr[currentHole - 1];
+      const hasAnyGreenCoord = currentMapping?.features.some(
+        f => f.type === 'green' && f.coordinates
+      );
+
+      if (!hasAnyGreenCoord) {
+        const newFeature: HoleFeature = {
+          id: `green_middle_of_green_${currentHole - 1}`,
+          type: 'green',
+          name: 'Middle of Green',
+          coordinates: { lat: currentPos.lat, lng: currentPos.lng },
+        };
+
+        const updatedMapping: HoleMapping[] = [];
+        for (let i = 0; i < 18; i++) {
+          const existing = mappingArr[i];
+          if (i === currentHole - 1) {
+            const features = existing ? [...existing.features] : [];
+            const idx = features.findIndex(f => f.id === newFeature.id);
+            if (idx >= 0) features[idx] = newFeature;
+            else features.push(newFeature);
+            updatedMapping.push({ holeNumber: i + 1, features });
+          } else if (existing) {
+            updatedMapping.push(existing);
+          } else {
+            updatedMapping.push({ holeNumber: i + 1, features: [] });
+          }
+        }
+
+        setCourses(prev => prev.map(c =>
+          c.id === course.id ? { ...c, holeMapping: updatedMapping } : c
+        ));
+        console.log(`[GreenCapture] Saved Middle of Green coordinate for hole ${currentHole}`, currentPos);
+      }
+    }
   };
 
   // Returns the hole distance in YARDS (course data is stored in yards)
