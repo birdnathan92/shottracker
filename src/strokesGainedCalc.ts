@@ -2,20 +2,23 @@
 // Based on Mark Broadie's methodology (Columbia University)
 // SG = Expected_Strokes(start) - Expected_Strokes(end) - 1
 
-import { getExpectedStrokes, LieType } from './strokesGainedBaseline';
+import { getExpectedStrokes, getExpectedPutts, LieType } from './strokesGainedBaseline';
 
 export interface HoleSGResult {
   sgTotal: number | null;         // SG vs PGA Tour for the whole hole
   sgOffTheTee: number | null;     // null if no drive data or par 3
   sgApproach: number | null;      // remainder (approach + short game + putting)
+  sgPutting: number | null;       // SG: Putting using proximity + actual putts
 }
 
 export interface RoundSGResult {
   sgTotal: number;
   sgOffTheTee: number;
   sgApproach: number;
+  sgPutting: number;
   holesCalculated: number;        // how many holes had enough data for SG:Total
   ottHolesCalculated: number;     // how many holes had enough data for SG:OTT
+  puttingHolesCalculated: number; // how many holes had enough data for SG:Putting
   perHole: Record<number, HoleSGResult>;
 }
 
@@ -25,13 +28,16 @@ interface HoleInput {
   distance?: number;        // hole distance in yards
   fairway?: boolean | null;
   driveDistance?: number;    // tee shot distance in yards (from GPS)
+  putts?: number;
+  gir?: boolean | null;
+  proximityToHole?: 6 | 12 | 25 | 99 | null; // feet from hole after GIR
 }
 
 /**
  * Calculate strokes gained for a single hole.
  */
 export function calculateHoleSG(hole: HoleInput): HoleSGResult {
-  const { score, par, distance, fairway, driveDistance } = hole;
+  const { score, par, distance, fairway, driveDistance, putts, gir, proximityToHole } = hole;
 
   // SG: Total = expected strokes from tee - actual score
   let sgTotal: number | null = null;
@@ -67,7 +73,19 @@ export function calculateHoleSG(hole: HoleInput): HoleSGResult {
     sgApproach = sgTotal - sgOffTheTee;
   }
 
-  return { sgTotal, sgOffTheTee, sgApproach };
+  // SG: Putting — requires GIR=true, proximity to hole (feet), and actual putts
+  // SG:Putting = expectedPutts(proximityFeet) - actualPutts
+  let sgPutting: number | null = null;
+  if (gir === true && proximityToHole && proximityToHole > 0 && putts != null && putts > 0) {
+    // Use midpoint of each range for expected putts lookup
+    const proximityMidpoint = proximityToHole === 6 ? 4 : proximityToHole === 12 ? 9 : proximityToHole === 25 ? 18 : 35;
+    const expectedPutts = getExpectedPutts(proximityMidpoint);
+    if (expectedPutts !== null) {
+      sgPutting = expectedPutts - putts;
+    }
+  }
+
+  return { sgTotal, sgOffTheTee, sgApproach, sgPutting };
 }
 
 /**
@@ -79,8 +97,10 @@ export function calculateRoundSG(
   let sgTotal = 0;
   let sgOffTheTee = 0;
   let sgApproach = 0;
+  let sgPutting = 0;
   let holesCalculated = 0;
   let ottHolesCalculated = 0;
+  let puttingHolesCalculated = 0;
   const perHole: Record<number, HoleSGResult> = {};
 
   for (const [holeNumStr, hole] of Object.entries(holeStats)) {
@@ -92,14 +112,16 @@ export function calculateRoundSG(
       sgTotal += result.sgTotal;
       holesCalculated++;
     }
-
     if (result.sgOffTheTee !== null) {
       sgOffTheTee += result.sgOffTheTee;
       ottHolesCalculated++;
     }
-
     if (result.sgApproach !== null) {
       sgApproach += result.sgApproach;
+    }
+    if (result.sgPutting !== null) {
+      sgPutting += result.sgPutting;
+      puttingHolesCalculated++;
     }
   }
 
@@ -107,8 +129,10 @@ export function calculateRoundSG(
     sgTotal,
     sgOffTheTee,
     sgApproach,
+    sgPutting,
     holesCalculated,
     ottHolesCalculated,
+    puttingHolesCalculated,
     perHole,
   };
 }

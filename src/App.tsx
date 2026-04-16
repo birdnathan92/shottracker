@@ -98,6 +98,7 @@ interface HoleStats {
   teeClub?: string;          // club name used off the tee
   approachClub?: string;     // club name used for approach
   layUp?: boolean | null;    // par 5 only: did the player lay up?
+  proximityToHole?: 6 | 12 | 25 | 99 | null; // feet from hole after GIR (99 = 30'+)
 }
 
 interface CourseHole {
@@ -358,6 +359,7 @@ export default function App() {
   const [isRoundActive, setIsRoundActive] = useState(() => loadLocal('golf_is_round_active', false));
   const [selectedRound, setSelectedRound] = useState<Round | null>(null);
   const [isRoundModalOpen, setIsRoundModalOpen] = useState(false);
+  const [summaryRound, setSummaryRound] = useState<Round | null>(null);
   const [selectedApproachClubId, setSelectedApproachClubId] = useState<string>(DEFAULT_CLUBS[0].id);
   const [hasManuallySelectedApproachClub, setHasManuallySelectedApproachClub] = useState(false);
   const [remainingDistance, setRemainingDistance] = useState<number | null>(null);
@@ -887,6 +889,38 @@ export default function App() {
 
       setStartPos(null);
       setIsTracking(false);
+
+      // Always save ball position to course_data_points for course mapping data
+      if (courseName && isSupabaseAvailable()) {
+        const currentStats = holeStats[currentHole] || {};
+        type AreaType = 'tee_box' | 'fairway' | 'rough' | 'green' | 'bunker' | 'fairway_bunker' | 'greenside_bunker';
+        let areaType: AreaType = 'rough';
+        if (currentStats.sandSave === true || currentStats.sandSave === false) {
+          areaType = 'bunker';
+        } else if (currentStats.gir === true) {
+          areaType = 'green';
+        } else if (currentStats.fairway === true) {
+          areaType = 'fairway';
+        } else if (currentStats.fairway === false) {
+          areaType = 'rough';
+        }
+        const dataPoint = {
+          id: crypto.randomUUID(),
+          course_name: courseName.replace(/\s*\(.*\)$/, ''),
+          hole_number: currentHole,
+          lat: currentPos.lat,
+          lng: currentPos.lng,
+          accuracy: currentPos.accuracy,
+          area_type: areaType,
+          club: bag.find(c => c.id === selectedClubId)?.name || 'Unknown',
+        };
+        supabaseDb.saveCourseDataPoint(dataPoint).catch(err =>
+          console.error('[MarkBall] Failed to save data point:', err)
+        );
+        if (isMappingCollectionMode) {
+          setCourseDataPoints(prev => [dataPoint as DbCourseDataPoint, ...prev]);
+        }
+      }
     }
   };
 
@@ -2024,6 +2058,7 @@ Requirements:
     };
 
     setRounds([newRound, ...rounds]);
+    setSummaryRound(newRound);
     resetRoundState();
   };
 
@@ -2619,6 +2654,31 @@ Requirements:
                           ))}
                         </motion.div>
                       )}
+                      {currentHoleData.gir === true && (
+                        <motion.div
+                          initial={{ opacity: 0, width: 0 }}
+                          animate={{ opacity: 1, width: 'auto' }}
+                          exit={{ opacity: 0, width: 0 }}
+                          className="flex items-center gap-1 overflow-hidden"
+                        >
+                          {([6, 12, 25, 99] as const).map(prox => (
+                            <button
+                              key={prox}
+                              onClick={() => setHoleStats(prev => ({
+                                ...prev,
+                                [currentHole]: { ...prev[currentHole], proximityToHole: currentHoleData.proximityToHole === prox ? null : prox }
+                              }))}
+                              className={`h-8 px-2 rounded-full flex items-center justify-center transition-all border text-[10px] font-bold ${
+                                currentHoleData.proximityToHole === prox
+                                  ? 'bg-emerald-500 border-emerald-500 text-white'
+                                  : 'bg-white border-stone-200 text-stone-500 hover:border-emerald-300'
+                              }`}
+                            >
+                              {prox === 99 ? "30'+" : `${prox}'`}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
                     </AnimatePresence>
                   </div>
                 </div>
@@ -3104,33 +3164,44 @@ Requirements:
                 const avgSGApp = roundsWithOTT.length > 0
                   ? roundsWithOTT.reduce((sum, sg) => sum + sg.sgApproach, 0) / roundsWithOTT.length
                   : null;
+                const roundsWithPutting = roundSGs.filter(sg => sg.puttingHolesCalculated > 0);
+                const avgSGPutting = roundsWithPutting.length > 0
+                  ? roundsWithPutting.reduce((sum, sg) => sum + sg.sgPutting, 0) / roundsWithPutting.length
+                  : null;
 
                 return (
                   <div className="bg-gradient-to-br from-stone-800 to-stone-900 rounded-2xl p-5 text-white">
                     <h3 className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-3">
                       Strokes Gained vs PGA Tour (avg/round)
                     </h3>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-4 gap-2">
                       <div className="text-center">
                         <p className="text-[10px] font-bold text-stone-400 uppercase">Total</p>
-                        <p className={`text-xl font-black ${avgSGTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <p className={`text-lg font-black ${avgSGTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                           {formatSG(avgSGTotal)}
                         </p>
-                        <p className="text-[9px] text-stone-500">{roundsWithSG.length} rounds</p>
+                        <p className="text-[9px] text-stone-500">{roundsWithSG.length}r</p>
                       </div>
                       <div className="text-center">
                         <p className="text-[10px] font-bold text-stone-400 uppercase">Off Tee</p>
-                        <p className={`text-xl font-black ${avgSGOTT !== null ? (avgSGOTT >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-stone-500'}`}>
+                        <p className={`text-lg font-black ${avgSGOTT !== null ? (avgSGOTT >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-stone-500'}`}>
                           {avgSGOTT !== null ? formatSG(avgSGOTT) : '—'}
                         </p>
-                        <p className="text-[9px] text-stone-500">{roundsWithOTT.length} rounds</p>
+                        <p className="text-[9px] text-stone-500">{roundsWithOTT.length}r</p>
                       </div>
                       <div className="text-center">
                         <p className="text-[10px] font-bold text-stone-400 uppercase">Approach</p>
-                        <p className={`text-xl font-black ${avgSGApp !== null ? (avgSGApp >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-stone-500'}`}>
+                        <p className={`text-lg font-black ${avgSGApp !== null ? (avgSGApp >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-stone-500'}`}>
                           {avgSGApp !== null ? formatSG(avgSGApp) : '—'}
                         </p>
-                        <p className="text-[9px] text-stone-500">{roundsWithOTT.length} rounds</p>
+                        <p className="text-[9px] text-stone-500">{roundsWithOTT.length}r</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[10px] font-bold text-stone-400 uppercase">Putting</p>
+                        <p className={`text-lg font-black ${avgSGPutting !== null ? (avgSGPutting >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-stone-500'}`}>
+                          {avgSGPutting !== null ? formatSG(avgSGPutting) : '—'}
+                        </p>
+                        <p className="text-[9px] text-stone-500">{roundsWithPutting.length}r</p>
                       </div>
                     </div>
                   </div>
@@ -4269,8 +4340,8 @@ Requirements:
               {/* Header */}
               <div className="sticky top-0 z-10 bg-gradient-to-b from-white to-white/50 px-6 py-4 border-b border-stone-100 flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-bold text-stone-800">{selectedRound.courseName}</h2>
-                  <p className="text-xs text-stone-400">{new Date(selectedRound.date).toLocaleDateString()} • {selectedRound.totalScore} ({selectedRound.totalScore - selectedRound.totalPar > 0 ? '+' : ''}{selectedRound.totalScore - selectedRound.totalPar})</p>
+                  <h2 className="text-xl font-bold text-stone-800">{selectedRound.courseName.replace(/\s*\(.*\)$/, '')}</h2>
+                  <p className="text-xs text-stone-400">{new Date(selectedRound.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} • {selectedRound.totalScore} ({selectedRound.totalScore - selectedRound.totalPar > 0 ? '+' : ''}{selectedRound.totalScore - selectedRound.totalPar})</p>
                 </div>
                 <button
                   onClick={() => { setIsRoundModalOpen(false); setIsEditingRound(false); }}
@@ -4282,6 +4353,42 @@ Requirements:
 
               {/* Scorecard & Strokes Gained */}
               <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+                {/* Round Summary Stats */}
+                {(() => {
+                  const displayStats = isEditingRound ? editingRoundStats : selectedRound.holeStats;
+                  const holes = Object.values(displayStats) as HoleStats[];
+                  if (holes.length === 0) return null;
+                  const par45 = holes.filter(h => h.par >= 4);
+                  const fairwayHits = par45.filter(h => h.fairway === true).length;
+                  const girHits = holes.filter(h => h.gir === true).length;
+                  const nonGir = holes.filter(h => !h.gir);
+                  const upDowns = nonGir.filter(h => h.upAndDown === true).length;
+                  const totalPutts = holes.reduce((s, h) => s + h.putts, 0);
+                  const drives = holes.filter(h => h.driveDistance && h.driveDistance > 0);
+                  const avgDrive = drives.length > 0 ? Math.round(drives.reduce((s, h) => s + (h.driveDistance || 0), 0) / drives.length) : null;
+                  const girProxHoles = holes.filter(h => h.gir === true && h.proximityToHole);
+                  const avgProx = girProxHoles.length > 0
+                    ? (girProxHoles.reduce((s, h) => s + (h.proximityToHole === 99 ? 35 : (h.proximityToHole || 0)), 0) / girProxHoles.length).toFixed(1)
+                    : null;
+                  const chip = (label: string, value: string, sub?: string) => (
+                    <div key={label} className="bg-stone-50 rounded-xl p-3 text-center border border-stone-100">
+                      <p className="text-[9px] font-bold text-stone-400 uppercase tracking-wider mb-0.5">{label}</p>
+                      <p className="text-base font-black text-stone-800">{value}</p>
+                      {sub && <p className="text-[9px] text-stone-400 mt-0.5">{sub}</p>}
+                    </div>
+                  );
+                  return (
+                    <div className="grid grid-cols-3 gap-2">
+                      {chip('Fairways', par45.length > 0 ? `${fairwayHits}/${par45.length}` : '—', par45.length > 0 ? `${Math.round(fairwayHits/par45.length*100)}%` : undefined)}
+                      {chip('GIR', `${girHits}/${holes.length}`, `${Math.round(girHits/holes.length*100)}%`)}
+                      {chip('Up & Down', nonGir.length > 0 ? `${upDowns}/${nonGir.length}` : '—', nonGir.length > 0 ? `${Math.round(upDowns/nonGir.length*100)}%` : undefined)}
+                      {chip('Total Putts', String(totalPutts), `${(totalPutts/holes.length).toFixed(1)}/hole`)}
+                      {avgDrive !== null ? chip('Avg Drive', `${avgDrive} yds`, `${drives.length} tracked`) : chip('Avg Drive', '—')}
+                      {avgProx !== null ? chip('Avg Proximity', `${avgProx}'`, `${girProxHoles.length} holes`) : chip('Avg Proximity', '—')}
+                    </div>
+                  );
+                })()}
+
                 {/* Strokes Gained Summary Card */}
                 {(() => {
                   const displayStats = isEditingRound ? editingRoundStats : selectedRound.holeStats;
@@ -4290,27 +4397,34 @@ Requirements:
                   return (
                     <div className="bg-gradient-to-br from-stone-800 to-stone-900 rounded-2xl p-5 text-white">
                       <h3 className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-3">Strokes Gained vs PGA Tour</h3>
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-4 gap-2">
                         <div className="text-center">
                           <p className="text-[10px] font-bold text-stone-400 uppercase">Total</p>
-                          <p className={`text-xl font-black ${roundSG.sgTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          <p className={`text-lg font-black ${roundSG.sgTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                             {formatSG(roundSG.sgTotal)}
                           </p>
-                          <p className="text-[9px] text-stone-500">{roundSG.holesCalculated} holes</p>
+                          <p className="text-[9px] text-stone-500">{roundSG.holesCalculated}h</p>
                         </div>
                         <div className="text-center">
                           <p className="text-[10px] font-bold text-stone-400 uppercase">Off Tee</p>
-                          <p className={`text-xl font-black ${roundSG.ottHolesCalculated > 0 ? (roundSG.sgOffTheTee >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-stone-500'}`}>
+                          <p className={`text-lg font-black ${roundSG.ottHolesCalculated > 0 ? (roundSG.sgOffTheTee >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-stone-500'}`}>
                             {roundSG.ottHolesCalculated > 0 ? formatSG(roundSG.sgOffTheTee) : '—'}
                           </p>
-                          <p className="text-[9px] text-stone-500">{roundSG.ottHolesCalculated} holes</p>
+                          <p className="text-[9px] text-stone-500">{roundSG.ottHolesCalculated}h</p>
                         </div>
                         <div className="text-center">
                           <p className="text-[10px] font-bold text-stone-400 uppercase">Approach</p>
-                          <p className={`text-xl font-black ${roundSG.ottHolesCalculated > 0 ? (roundSG.sgApproach >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-stone-500'}`}>
+                          <p className={`text-lg font-black ${roundSG.ottHolesCalculated > 0 ? (roundSG.sgApproach >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-stone-500'}`}>
                             {roundSG.ottHolesCalculated > 0 ? formatSG(roundSG.sgApproach) : '—'}
                           </p>
-                          <p className="text-[9px] text-stone-500">{roundSG.ottHolesCalculated} holes</p>
+                          <p className="text-[9px] text-stone-500">{roundSG.ottHolesCalculated}h</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] font-bold text-stone-400 uppercase">Putting</p>
+                          <p className={`text-lg font-black ${roundSG.puttingHolesCalculated > 0 ? (roundSG.sgPutting >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-stone-500'}`}>
+                            {roundSG.puttingHolesCalculated > 0 ? formatSG(roundSG.sgPutting) : '—'}
+                          </p>
+                          <p className="text-[9px] text-stone-500">{roundSG.puttingHolesCalculated}h</p>
                         </div>
                       </div>
                     </div>
@@ -4508,6 +4622,151 @@ Requirements:
             </motion.div>
           </div>
         )}
+      </AnimatePresence>
+
+      {/* Post-Round Summary Modal */}
+      <AnimatePresence>
+        {summaryRound && (() => {
+          const holes = Object.values(summaryRound.holeStats) as HoleStats[];
+          const roundSG = calculateRoundSG(summaryRound.holeStats);
+          const par45 = holes.filter(h => h.par > 3);
+          const fairwayHits = par45.filter(h => h.fairway === true).length;
+          const girHits = holes.filter(h => h.gir === true).length;
+          const nonGir = holes.filter(h => !h.gir);
+          const upDowns = nonGir.filter(h => h.upAndDown === true).length;
+          const totalPutts = holes.reduce((s, h) => s + h.putts, 0);
+          const drives = holes.filter(h => h.driveDistance && h.driveDistance > 0);
+          const avgDrive = drives.length > 0 ? Math.round(drives.reduce((s, h) => s + (h.driveDistance || 0), 0) / drives.length) : null;
+          const girProxHoles = holes.filter(h => h.gir === true && h.proximityToHole);
+          const avgProx = girProxHoles.length > 0
+            ? (girProxHoles.reduce((s, h) => s + (h.proximityToHole === 99 ? 35 : (h.proximityToHole || 0)), 0) / girProxHoles.length).toFixed(1)
+            : null;
+          const diff = summaryRound.totalScore - summaryRound.totalPar;
+          const statCard = (label: string, value: string, sub?: string) => (
+            <div className="bg-stone-800 rounded-2xl p-4 text-center">
+              <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest mb-1">{label}</p>
+              <p className="text-xl font-black text-white">{value}</p>
+              {sub && <p className="text-[9px] text-stone-500 mt-0.5">{sub}</p>}
+            </div>
+          );
+          return (
+            <div className="fixed inset-0 z-[200] flex items-end justify-center sm:items-center p-4">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-stone-900/70 backdrop-blur-sm" onClick={() => setSummaryRound(null)} />
+              <motion.div
+                initial={{ opacity: 0, y: 60 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 60 }}
+                className="relative w-full max-w-md bg-stone-900 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+              >
+                {/* Header */}
+                <div className="px-6 pt-6 pb-4 border-b border-stone-700">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Round Complete</p>
+                      <h2 className="text-xl font-black text-white mt-0.5">{summaryRound.courseName.replace(/\s*\(.*\)$/, '')}</h2>
+                      <p className="text-xs text-stone-400 mt-0.5">{new Date(summaryRound.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-3xl font-black text-white">{summaryRound.totalScore}</p>
+                      <p className={`text-sm font-bold ${diff <= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{diff === 0 ? 'Even' : diff > 0 ? `+${diff}` : diff} vs par</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+                  {/* Key Stats Grid */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {statCard('Fairways Hit', par45.length > 0 ? `${fairwayHits}/${par45.length}` : '—', par45.length > 0 ? `${Math.round(fairwayHits/par45.length*100)}%` : undefined)}
+                    {statCard('GIR', `${girHits}/${holes.length}`, `${Math.round(girHits/holes.length*100)}%`)}
+                    {statCard('Up & Down', nonGir.length > 0 ? `${upDowns}/${nonGir.length}` : '—', nonGir.length > 0 ? `${Math.round(upDowns/nonGir.length*100)}%` : undefined)}
+                    {statCard('Total Putts', String(totalPutts), `${(totalPutts/holes.length).toFixed(1)}/hole`)}
+                    {avgDrive !== null && statCard('Avg Drive', `${avgDrive} yds`, `${drives.length} measured`)}
+                    {avgProx !== null && statCard('Avg Proximity', `${avgProx}'`, `${girProxHoles.length} GIR holes`)}
+                  </div>
+
+                  {/* Strokes Gained */}
+                  {roundSG.holesCalculated > 0 && (
+                    <div className="bg-stone-800 rounded-2xl p-4">
+                      <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest mb-3">Strokes Gained vs PGA Tour</p>
+                      <div className="grid grid-cols-4 gap-2">
+                        {[
+                          { label: 'Total', val: roundSG.sgTotal, show: roundSG.holesCalculated > 0 },
+                          { label: 'Off Tee', val: roundSG.sgOffTheTee, show: roundSG.ottHolesCalculated > 0 },
+                          { label: 'Approach', val: roundSG.sgApproach, show: roundSG.ottHolesCalculated > 0 },
+                          { label: 'Putting', val: roundSG.sgPutting, show: roundSG.puttingHolesCalculated > 0 },
+                        ].map(({ label, val, show }) => (
+                          <div key={label} className="text-center">
+                            <p className="text-[8px] font-bold text-stone-400 uppercase">{label}</p>
+                            <p className={`text-base font-black ${!show ? 'text-stone-600' : val >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {show ? formatSG(val) : '—'}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Scorecard */}
+                  <div className="bg-stone-800 rounded-2xl overflow-hidden">
+                    <p className="text-[9px] font-bold text-stone-400 uppercase tracking-widest px-4 pt-3 pb-1">Scorecard</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs min-w-[320px]">
+                        <thead>
+                          <tr className="text-[9px] text-stone-500 uppercase">
+                            <th className="px-3 py-1 text-left">Hole</th>
+                            <th className="px-2 py-1 text-center">Par</th>
+                            <th className="px-2 py-1 text-center">Score</th>
+                            <th className="px-2 py-1 text-center">+/-</th>
+                            <th className="px-2 py-1 text-center">Putts</th>
+                            <th className="px-2 py-1 text-center">FW</th>
+                            <th className="px-2 py-1 text-center">GIR</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Array.from({ length: 18 }, (_, i) => {
+                            const h = summaryRound.holeStats[i + 1];
+                            if (!h) return null;
+                            const d = h.score - h.par;
+                            return (
+                              <tr key={i + 1} className={`border-t border-stone-700 ${d < 0 ? 'bg-emerald-900/20' : d > 0 ? 'bg-red-900/20' : ''}`}>
+                                <td className="px-3 py-1 font-bold text-stone-300">{i + 1}</td>
+                                <td className="px-2 py-1 text-center text-stone-400">{h.par}</td>
+                                <td className="px-2 py-1 text-center font-bold text-white">{h.score}</td>
+                                <td className="px-2 py-1 text-center text-xs font-bold">
+                                  <span className={d < 0 ? 'text-emerald-400' : d > 0 ? 'text-red-400' : 'text-stone-400'}>{d === 0 ? 'E' : d > 0 ? `+${d}` : d}</span>
+                                </td>
+                                <td className="px-2 py-1 text-center text-stone-300">{h.putts}</td>
+                                <td className="px-2 py-1 text-center">{h.par <= 3 ? <span className="text-stone-600">—</span> : h.fairway === true ? <span className="text-emerald-400">✓</span> : h.fairway === false ? <span className="text-red-400">✗</span> : <span className="text-stone-600">—</span>}</td>
+                                <td className="px-2 py-1 text-center">{h.gir === true ? <span className="text-emerald-400">✓</span> : h.gir === false ? <span className="text-red-400">✗</span> : <span className="text-stone-600">—</span>}</td>
+                              </tr>
+                            );
+                          })}
+                          <tr className="border-t border-stone-600 font-bold text-white bg-stone-700">
+                            <td className="px-3 py-1.5">TOT</td>
+                            <td className="px-2 py-1.5 text-center">{summaryRound.totalPar}</td>
+                            <td className="px-2 py-1.5 text-center">{summaryRound.totalScore}</td>
+                            <td className="px-2 py-1.5 text-center"><span className={diff <= 0 ? 'text-emerald-400' : 'text-red-400'}>{diff === 0 ? 'E' : diff > 0 ? `+${diff}` : diff}</span></td>
+                            <td className="px-2 py-1.5 text-center">{totalPutts}</td>
+                            <td colSpan={2}></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-shrink-0 px-6 py-4 border-t border-stone-700">
+                  <button
+                    onClick={() => setSummaryRound(null)}
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
       </AnimatePresence>
 
       {/* Footer Info */}
