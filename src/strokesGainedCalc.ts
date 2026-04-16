@@ -2,7 +2,16 @@
 // Based on Mark Broadie's methodology (Columbia University)
 // SG = Expected_Strokes(start) - Expected_Strokes(end) - 1
 
-import { getExpectedStrokes, getExpectedPutts, LieType } from './strokesGainedBaseline';
+import { getExpectedStrokes, LieType } from './strokesGainedBaseline';
+
+// Expected putts by proximity bucket (PGA Tour baselines).
+// These are the specific bucket values the app uses for SG: Putting.
+const EXPECTED_PUTTS_BY_PROXIMITY: Record<number, number> = {
+  6: 1.19,   // Inside 6 feet
+  15: 1.57,  // 6 – 15 feet
+  20: 1.83,  // 15 – 20 feet
+  99: 1.97,  // 20+ feet
+};
 
 export interface HoleSGResult {
   sgTotal: number | null;         // SG vs PGA Tour for the whole hole
@@ -30,7 +39,7 @@ interface HoleInput {
   driveDistance?: number;    // tee shot distance in yards (from GPS)
   putts?: number;
   gir?: boolean | null;
-  proximityToHole?: 6 | 12 | 25 | 99 | null; // feet from hole after GIR
+  proximityToHole?: 6 | 15 | 20 | 99 | null; // feet from hole after GIR
 }
 
 /**
@@ -74,13 +83,12 @@ export function calculateHoleSG(hole: HoleInput): HoleSGResult {
   }
 
   // SG: Putting — requires GIR=true, proximity to hole (feet), and actual putts
-  // SG:Putting = expectedPutts(proximityFeet) - actualPutts
+  // SG:Putting = expectedPutts(proximityBucket) - actualPutts
+  // Expected strokes per bucket: 6'=1.19, 15'=1.57, 20'=1.83, 20'+=1.97
   let sgPutting: number | null = null;
   if (gir === true && proximityToHole && proximityToHole > 0 && putts != null && putts > 0) {
-    // Use midpoint of each range for expected putts lookup
-    const proximityMidpoint = proximityToHole === 6 ? 4 : proximityToHole === 12 ? 9 : proximityToHole === 25 ? 18 : 35;
-    const expectedPutts = getExpectedPutts(proximityMidpoint);
-    if (expectedPutts !== null) {
+    const expectedPutts = EXPECTED_PUTTS_BY_PROXIMITY[proximityToHole];
+    if (expectedPutts !== undefined) {
       sgPutting = expectedPutts - putts;
     }
   }

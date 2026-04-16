@@ -98,7 +98,7 @@ interface HoleStats {
   teeClub?: string;          // club name used off the tee
   approachClub?: string;     // club name used for approach
   layUp?: boolean | null;    // par 5 only: did the player lay up?
-  proximityToHole?: 6 | 12 | 25 | 99 | null; // feet from hole after GIR (99 = 30'+)
+  proximityToHole?: 6 | 15 | 20 | 99 | null; // feet from hole after GIR (99 = 20'+)
 }
 
 interface CourseHole {
@@ -662,7 +662,7 @@ export default function App() {
     if (!course?.holeMapping) return;
 
     const TEE_GEOFENCE_METERS = 6.4008; // 7 yards
-    const LOITER_SECONDS = 5;            // seconds inside geofence before auto-start
+    const LOITER_SECONDS = 10;           // seconds inside geofence before auto-start
     const NEXT_HOLE_GEOFENCE_METERS = 6.4008;
     const NEXT_HOLE_LOITER_THRESHOLD = 3; // GPS updates (next-hole advance stays count-based)
 
@@ -1195,44 +1195,6 @@ export default function App() {
       return next;
     });
   };
-
-  // GIR% by approach club — computed from all rounds + current round
-  const girByClub = useMemo(() => {
-    const clubData: Record<string, { attempts: number; hits: number }> = {};
-
-    // From completed rounds
-    for (const round of rounds) {
-      if (!round.holeStats) continue;
-      for (const [, rawStats] of Object.entries(round.holeStats)) {
-        const stats = rawStats as HoleStats;
-        if (stats.approachClub && stats.gir !== null && stats.gir !== undefined) {
-          if (!clubData[stats.approachClub]) clubData[stats.approachClub] = { attempts: 0, hits: 0 };
-          clubData[stats.approachClub].attempts++;
-          if (stats.gir) clubData[stats.approachClub].hits++;
-        }
-      }
-    }
-
-    // From current round in progress
-    if (isRoundActive) {
-      for (const [, stats] of Object.entries(holeStats) as [string, HoleStats][]) {
-        if (stats.approachClub && stats.gir !== null && stats.gir !== undefined) {
-          if (!clubData[stats.approachClub]) clubData[stats.approachClub] = { attempts: 0, hits: 0 };
-          clubData[stats.approachClub].attempts++;
-          if (stats.gir) clubData[stats.approachClub].hits++;
-        }
-      }
-    }
-
-    return Object.entries(clubData)
-      .map(([club, data]) => ({
-        club,
-        attempts: data.attempts,
-        hits: data.hits,
-        girPct: data.attempts > 0 ? Math.round((data.hits / data.attempts) * 100) : 0,
-      }))
-      .sort((a, b) => b.attempts - a.attempts);
-  }, [rounds, holeStats, isRoundActive]);
 
   // Score Handlers
   const updateScore = (delta: number) => {
@@ -2423,40 +2385,64 @@ Requirements:
               exit={{ opacity: 0, y: -10 }}
               className="space-y-2"
             >
-              {/* Hole Header - Par & Distance at top */}
-              <div className="text-center pb-1">
-                <div className="flex items-center justify-center gap-3">
-                  <span className="text-4xl font-black text-stone-800">#{currentHole}</span>
-                  <div className="text-right">
-                    <p className="text-xs font-bold text-stone-500 uppercase">Par {currentHoleData.par}</p>
-                    <p className="text-xs font-bold text-stone-400">{Math.round(unit === 'yards' ? getCurrentHoleDistance() : getCurrentHoleDistance() * 0.9144)} {unit.toUpperCase()}</p>
-                  </div>
-                  {/* Score relative to par badge */}
-                  {(() => {
-                    let totalScore = 0;
-                    let totalPar = 0;
-                    let holesScored = 0;
-                    for (let i = 1; i <= currentHole; i++) {
-                      const stat = holeStats[i];
-                      if (stat && stat.score > 0) {
-                        totalScore += stat.score;
-                        totalPar += stat.par;
-                        holesScored++;
-                      }
+              {/* Hole Header - compact single-line banner */}
+              <div className="flex items-center justify-center gap-2 leading-tight">
+                <span className="text-lg font-black text-stone-800">#{currentHole}</span>
+                <span className="text-[10px] font-bold text-stone-500 uppercase">Par {currentHoleData.par}</span>
+                <span className="text-stone-300">·</span>
+                <span className="text-[10px] font-bold text-stone-400">{Math.round(unit === 'yards' ? getCurrentHoleDistance() : getCurrentHoleDistance() * 0.9144)} {unit.toUpperCase()}</span>
+                {(() => {
+                  let totalScore = 0;
+                  let totalPar = 0;
+                  let holesScored = 0;
+                  for (let i = 1; i <= currentHole; i++) {
+                    const stat = holeStats[i];
+                    if (stat && stat.score > 0) {
+                      totalScore += stat.score;
+                      totalPar += stat.par;
+                      holesScored++;
                     }
-                    if (holesScored === 0) return null;
-                    const diff = totalScore - totalPar;
-                    const label = diff === 0 ? 'E' : diff > 0 ? `+${diff}` : `${diff}`;
-                    const bgColor = diff < 0 ? 'bg-emerald-50' : diff > 0 ? 'bg-red-50' : 'bg-stone-100';
-                    const textColor = diff < 0 ? 'text-emerald-700' : diff > 0 ? 'text-red-600' : 'text-stone-600';
-                    return (
-                      <span className={`text-xs font-bold px-2 py-1 rounded-lg ${bgColor} ${textColor}`}>
-                        {label} thru {holesScored}
-                      </span>
-                    );
-                  })()}
-                </div>
+                  }
+                  if (holesScored === 0) return null;
+                  const diff = totalScore - totalPar;
+                  const label = diff === 0 ? 'E' : diff > 0 ? `+${diff}` : `${diff}`;
+                  const bgColor = diff < 0 ? 'bg-emerald-50' : diff > 0 ? 'bg-red-50' : 'bg-stone-100';
+                  const textColor = diff < 0 ? 'text-emerald-700' : diff > 0 ? 'text-red-600' : 'text-stone-600';
+                  return (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${bgColor} ${textColor}`}>
+                      {label} thru {holesScored}
+                    </span>
+                  );
+                })()}
               </div>
+
+              {/* Distance to Green (top-of-page — visible without scrolling) */}
+              {(() => {
+                const greenDist = getDistancesToGreen();
+                if (!greenDist) return null;
+                return (
+                  <div className="flex gap-2">
+                    {greenDist.front > 0 && (
+                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
+                        <span className="text-[10px] font-bold text-emerald-500 uppercase">F</span>
+                        <span className="text-sm font-black text-emerald-700">{greenDist.front}</span>
+                      </div>
+                    )}
+                    {greenDist.middle > 0 && (
+                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
+                        <span className="text-[10px] font-bold text-emerald-500 uppercase">M</span>
+                        <span className="text-sm font-black text-emerald-700">{greenDist.middle}</span>
+                      </div>
+                    )}
+                    {greenDist.back > 0 && (
+                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
+                        <span className="text-[10px] font-bold text-emerald-500 uppercase">B</span>
+                        <span className="text-sm font-black text-emerald-700">{greenDist.back}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Scorecard */}
               <div className="bg-white rounded-2xl shadow-sm border border-stone-100 divide-y divide-stone-50">
@@ -2661,7 +2647,7 @@ Requirements:
                           exit={{ opacity: 0, width: 0 }}
                           className="flex items-center gap-1 overflow-hidden"
                         >
-                          {([6, 12, 25, 99] as const).map(prox => (
+                          {([6, 15, 20, 99] as const).map(prox => (
                             <button
                               key={prox}
                               onClick={() => setHoleStats(prev => ({
@@ -2674,7 +2660,7 @@ Requirements:
                                   : 'bg-white border-stone-200 text-stone-500 hover:border-emerald-300'
                               }`}
                             >
-                              {prox === 99 ? "30'+" : `${prox}'`}
+                              {prox === 99 ? "20'+" : `${prox}'`}
                             </button>
                           ))}
                         </motion.div>
@@ -2983,34 +2969,6 @@ Requirements:
                 );
               })()}
 
-              {/* Distance to Green */}
-              {(() => {
-                const greenDist = getDistancesToGreen();
-                if (!greenDist) return null;
-                return (
-                  <div className="flex gap-2">
-                    {greenDist.front > 0 && (
-                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
-                        <span className="text-[10px] font-bold text-emerald-500 uppercase">F</span>
-                        <span className="text-sm font-black text-emerald-700">{greenDist.front}</span>
-                      </div>
-                    )}
-                    {greenDist.middle > 0 && (
-                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
-                        <span className="text-[10px] font-bold text-emerald-500 uppercase">M</span>
-                        <span className="text-sm font-black text-emerald-700">{greenDist.middle}</span>
-                      </div>
-                    )}
-                    {greenDist.back > 0 && (
-                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
-                        <span className="text-[10px] font-bold text-emerald-500 uppercase">B</span>
-                        <span className="text-sm font-black text-emerald-700">{greenDist.back}</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
               {/* Hole Navigation - Bottom */}
               <div className="flex gap-3">
                 <button
@@ -3252,45 +3210,6 @@ Requirements:
                             </tr>
                           );
                         })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-
-              {/* GIR% by Approach Club */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-bold text-stone-800">GIR by Club</h3>
-                {girByClub.length === 0 ? (
-                  <div className="bg-white p-6 rounded-2xl text-center border border-dashed border-stone-200">
-                    <p className="text-stone-400 text-sm">No approach club data yet.</p>
-                  </div>
-                ) : (
-                  <div className="bg-white rounded-2xl border border-stone-100 shadow-sm overflow-hidden">
-                    <table className="w-full text-left text-sm">
-                      <thead>
-                        <tr className="bg-stone-50 border-b border-stone-100">
-                          <th className="px-4 py-3 font-bold text-stone-400 uppercase text-[10px] tracking-widest">Club</th>
-                          <th className="px-4 py-3 font-bold text-stone-400 uppercase text-[10px] tracking-widest text-center">Approaches</th>
-                          <th className="px-4 py-3 font-bold text-stone-400 uppercase text-[10px] tracking-widest text-right">GIR%</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-stone-50">
-                        {girByClub.map((row) => (
-                          <tr key={row.club}>
-                            <td className="px-4 py-3">
-                              <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded uppercase tracking-wider">
-                                {row.club}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-center font-medium text-stone-600">{row.attempts}</td>
-                            <td className={`px-4 py-3 text-right font-bold ${
-                              row.girPct >= 50 ? 'text-emerald-600' : row.girPct >= 25 ? 'text-amber-600' : 'text-red-500'
-                            }`}>
-                              {row.girPct}%
-                            </td>
-                          </tr>
-                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -4368,7 +4287,7 @@ Requirements:
                   const avgDrive = drives.length > 0 ? Math.round(drives.reduce((s, h) => s + (h.driveDistance || 0), 0) / drives.length) : null;
                   const girProxHoles = holes.filter(h => h.gir === true && h.proximityToHole);
                   const avgProx = girProxHoles.length > 0
-                    ? (girProxHoles.reduce((s, h) => s + (h.proximityToHole === 99 ? 35 : (h.proximityToHole || 0)), 0) / girProxHoles.length).toFixed(1)
+                    ? (girProxHoles.reduce((s, h) => s + (h.proximityToHole === 99 ? 25 : (h.proximityToHole || 0)), 0) / girProxHoles.length).toFixed(1)
                     : null;
                   const chip = (label: string, value: string, sub?: string) => (
                     <div key={label} className="bg-stone-50 rounded-xl p-3 text-center border border-stone-100">
@@ -4639,7 +4558,7 @@ Requirements:
           const avgDrive = drives.length > 0 ? Math.round(drives.reduce((s, h) => s + (h.driveDistance || 0), 0) / drives.length) : null;
           const girProxHoles = holes.filter(h => h.gir === true && h.proximityToHole);
           const avgProx = girProxHoles.length > 0
-            ? (girProxHoles.reduce((s, h) => s + (h.proximityToHole === 99 ? 35 : (h.proximityToHole || 0)), 0) / girProxHoles.length).toFixed(1)
+            ? (girProxHoles.reduce((s, h) => s + (h.proximityToHole === 99 ? 25 : (h.proximityToHole || 0)), 0) / girProxHoles.length).toFixed(1)
             : null;
           const diff = summaryRound.totalScore - summaryRound.totalPar;
           const statCard = (label: string, value: string, sub?: string) => (
