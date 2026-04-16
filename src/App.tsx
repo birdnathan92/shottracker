@@ -841,6 +841,60 @@ export default function App() {
       setStartPos(currentPos);
       setIsTracking(true);
       setLastDriveDistance(null);
+
+      // If a course is loaded and the user has a specific tee color selected,
+      // and no tee_box coordinate exists for that color on this hole yet,
+      // capture this start position as the tee_box coordinate for that color.
+      if (courseName) {
+        const baseCourseName = courseName.replace(/\s*\(.*\)$/, '');
+        const teeBoxMatch = courseName.match(/\(([^)]+)\)$/);
+        const selectedTeeBoxName = teeBoxMatch ? teeBoxMatch[1] : null;
+        const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
+        const selectedTeeColor = selectedTeeBoxName && course?.teeBoxes
+          ? course.teeBoxes.find(tb => tb.name === selectedTeeBoxName)?.color || null
+          : null;
+
+        if (course && selectedTeeColor) {
+          const mappingArr = course.holeMapping || [];
+          const currentMapping = mappingArr[currentHole - 1];
+          const existingTeeBox = currentMapping?.features.find(
+            f => f.type === 'tee_box' && f.teeBoxColor === selectedTeeColor && f.coordinates
+          );
+
+          if (!existingTeeBox) {
+            const newFeature: HoleFeature = {
+              id: `tee_${selectedTeeColor}_${currentHole - 1}`,
+              type: 'tee_box',
+              name: `${selectedTeeColor.charAt(0).toUpperCase() + selectedTeeColor.slice(1)} Tee`,
+              teeBoxColor: selectedTeeColor,
+              coordinates: { lat: currentPos.lat, lng: currentPos.lng },
+            };
+
+            // Build full holeMapping with the new tee box added on the current hole
+            const updatedMapping: HoleMapping[] = [];
+            for (let i = 0; i < 18; i++) {
+              const existing = mappingArr[i];
+              if (i === currentHole - 1) {
+                const features = existing ? [...existing.features] : [];
+                // Replace by id if present, else append
+                const idx = features.findIndex(f => f.id === newFeature.id);
+                if (idx >= 0) features[idx] = newFeature;
+                else features.push(newFeature);
+                updatedMapping.push({ holeNumber: i + 1, features });
+              } else if (existing) {
+                updatedMapping.push(existing);
+              } else {
+                updatedMapping.push({ holeNumber: i + 1, features: [] });
+              }
+            }
+
+            setCourses(prev => prev.map(c =>
+              c.id === course.id ? { ...c, holeMapping: updatedMapping } : c
+            ));
+            console.log(`[TeeBoxCapture] Saved ${selectedTeeColor} tee coordinate for hole ${currentHole}`, currentPos);
+          }
+        }
+      }
     } else {
       setError('Waiting for GPS signal...');
     }
@@ -885,6 +939,35 @@ export default function App() {
           ...prev,
           [currentHole]: { ...prev[currentHole], driveDistance: driveDistanceYards }
         }));
+      }
+
+      // Auto-suggest approach club:
+      //   1) Prefer GPS distance to MIDDLE of green from current ball position
+      //   2) Otherwise fall back to (total hole length − drive distance)
+      // Only auto-suggest if user hasn't manually picked a club already.
+      if (!hasManuallySelectedApproachClub) {
+        let suggestDistanceYards: number | null = null;
+        const baseCourseName = courseName ? courseName.replace(/\s*\(.*\)$/, '') : null;
+        const course = baseCourseName ? courses.find(c => c.name === baseCourseName || c.name === courseName) : null;
+        const middleGreen = course?.holeMapping?.[currentHole - 1]?.features.find(
+          f => f.type === 'green' && f.name === 'Middle of Green'
+        )?.coordinates;
+        if (middleGreen) {
+          const meters = haversineDistance(currentPos.lat, currentPos.lng, middleGreen.lat, middleGreen.lng);
+          suggestDistanceYards = meters * 1.09361;
+        } else if (holeDistanceYards) {
+          suggestDistanceYards = Math.max(0, holeDistanceYards - driveDistanceYards);
+        }
+        if (suggestDistanceYards !== null && suggestDistanceYards > 0) {
+          const suggestedClubId = suggestApproachClub(suggestDistanceYards);
+          if (suggestedClubId) {
+            setSelectedApproachClubId(suggestedClubId);
+            setHoleStats(prev => ({
+              ...prev,
+              [currentHole]: { ...prev[currentHole], approachClub: suggestedClubId }
+            }));
+          }
+        }
       }
 
       setStartPos(null);
@@ -2416,34 +2499,6 @@ Requirements:
                 })()}
               </div>
 
-              {/* Distance to Green (top-of-page — visible without scrolling) */}
-              {(() => {
-                const greenDist = getDistancesToGreen();
-                if (!greenDist) return null;
-                return (
-                  <div className="flex gap-2">
-                    {greenDist.front > 0 && (
-                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
-                        <span className="text-[10px] font-bold text-emerald-500 uppercase">F</span>
-                        <span className="text-sm font-black text-emerald-700">{greenDist.front}</span>
-                      </div>
-                    )}
-                    {greenDist.middle > 0 && (
-                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
-                        <span className="text-[10px] font-bold text-emerald-500 uppercase">M</span>
-                        <span className="text-sm font-black text-emerald-700">{greenDist.middle}</span>
-                      </div>
-                    )}
-                    {greenDist.back > 0 && (
-                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
-                        <span className="text-[10px] font-bold text-emerald-500 uppercase">B</span>
-                        <span className="text-sm font-black text-emerald-700">{greenDist.back}</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
               {/* Scorecard */}
               <div className="bg-white rounded-2xl shadow-sm border border-stone-100 divide-y divide-stone-50">
                 {/* Total Strokes Row */}
@@ -2753,6 +2808,34 @@ Requirements:
                   </div>
                 </div>
               </div>
+
+              {/* Distance to Green — placed below Sand Save / Up & Down so it sits in the player's eye line */}
+              {(() => {
+                const greenDist = getDistancesToGreen();
+                if (!greenDist) return null;
+                return (
+                  <div className="flex gap-2">
+                    {greenDist.front > 0 && (
+                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
+                        <span className="text-[10px] font-bold text-emerald-500 uppercase">F</span>
+                        <span className="text-sm font-black text-emerald-700">{greenDist.front}</span>
+                      </div>
+                    )}
+                    {greenDist.middle > 0 && (
+                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
+                        <span className="text-[10px] font-bold text-emerald-500 uppercase">M</span>
+                        <span className="text-sm font-black text-emerald-700">{greenDist.middle}</span>
+                      </div>
+                    )}
+                    {greenDist.back > 0 && (
+                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 border border-emerald-100 rounded-xl py-2 px-2">
+                        <span className="text-[10px] font-bold text-emerald-500 uppercase">B</span>
+                        <span className="text-sm font-black text-emerald-700">{greenDist.back}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Accuracy arrows are now integrated inline in Fairway/GIR rows above */}
 
