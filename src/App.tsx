@@ -633,7 +633,8 @@ export default function App() {
 
   // --- AUTO HOLE DETECTION & TEE SHOT TRIGGER ---
   const nearTeeCount = React.useRef(0);
-  const nearCurrentTeeCount = React.useRef(0);
+  const teeEntryTime = React.useRef<number | null>(null);   // when user first entered tee geofence
+  const teeAutoStartFired = React.useRef(false);            // prevent repeated triggers per visit
   const lastMovedPos = React.useRef<Position | null>(null);
   const lastMovedTime = React.useRef<number>(Date.now());
   const autoStopTriggered = React.useRef(false);
@@ -658,8 +659,10 @@ export default function App() {
     const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
     if (!course?.holeMapping) return;
 
-    const TEE_PROXIMITY_METERS = 3;
-    const LOITER_THRESHOLD = 3; // consecutive position updates near tee
+    const TEE_GEOFENCE_METERS = 4.572;  // 5 yards
+    const LOITER_SECONDS = 5;            // seconds inside geofence before auto-start
+    const NEXT_HOLE_GEOFENCE_METERS = 4.572;
+    const NEXT_HOLE_LOITER_THRESHOLD = 3; // GPS updates (next-hole advance stays count-based)
 
     // Determine the selected tee box color from courseName (e.g., "Course (Blue)" → "Blue")
     const teeBoxMatch = courseName.match(/\(([^)]+)\)$/);
@@ -668,44 +671,51 @@ export default function App() {
       ? course.teeBoxes?.find(tb => tb.name === selectedTeeBoxName)?.color || null
       : null;
 
-    // Check proximity to current hole's selected tee box (for auto-measuring)
+    // --- 5-yard geofence around current hole's tee box (time-based loiter) ---
     const currentMapping = course.holeMapping[currentHole - 1];
     if (currentMapping && !isTracking) {
-      let nearCurrentTee = false;
+      let insideGeofence = false;
       for (const feature of currentMapping.features) {
         if (feature.type !== 'tee_box' || !feature.coordinates) continue;
-        // Only match the selected tee box color, or any tee if no specific selection
+        // Match selected tee box color if known, otherwise accept any tee
         if (selectedTeeColor && feature.teeBoxColor !== selectedTeeColor) continue;
         const dist = haversineDistance(
           currentPos.lat, currentPos.lng,
           feature.coordinates.lat, feature.coordinates.lng
         );
-        if (dist < TEE_PROXIMITY_METERS) {
-          nearCurrentTee = true;
+        if (dist <= TEE_GEOFENCE_METERS) {
+          insideGeofence = true;
           break;
         }
       }
-      if (nearCurrentTee) {
-        // Only auto-start if previous hole stats are complete (or it's hole 1)
+
+      if (insideGeofence) {
+        // Record when user first entered the geofence
+        if (teeEntryTime.current === null) {
+          teeEntryTime.current = Date.now();
+          teeAutoStartFired.current = false;
+        }
+        // Fire once loiter threshold is reached
+        const dwellMs = Date.now() - teeEntryTime.current;
         const prevHoleComplete = currentHole === 1 || isHoleComplete(currentHole - 1);
-        nearCurrentTeeCount.current++;
-        if (nearCurrentTeeCount.current >= LOITER_THRESHOLD && prevHoleComplete) {
+        if (dwellMs >= LOITER_SECONDS * 1000 && prevHoleComplete && !teeAutoStartFired.current) {
+          teeAutoStartFired.current = true;
           handleStartDrive();
-          nearCurrentTeeCount.current = 0;
         }
       } else {
-        nearCurrentTeeCount.current = 0;
+        // User left the geofence — reset so re-entry starts a fresh timer
+        teeEntryTime.current = null;
+        teeAutoStartFired.current = false;
       }
     }
 
-    // Check proximity to next hole's tee box (for auto-advancing)
-    // Only advance if current hole stats are complete
+    // --- Proximity to next hole's tee box (auto-advance hole, count-based) ---
     let closestHole: number | null = null;
     let closestDist = Infinity;
 
     for (let holeIdx = 0; holeIdx < course.holeMapping.length; holeIdx++) {
       const holeNum = holeIdx + 1;
-      if (holeNum <= currentHole) continue; // only look ahead
+      if (holeNum <= currentHole) continue;
 
       const mapping = course.holeMapping[holeIdx];
       for (const feature of mapping.features) {
@@ -714,7 +724,7 @@ export default function App() {
           currentPos.lat, currentPos.lng,
           feature.coordinates.lat, feature.coordinates.lng
         );
-        if (dist < TEE_PROXIMITY_METERS && dist < closestDist) {
+        if (dist <= NEXT_HOLE_GEOFENCE_METERS && dist < closestDist) {
           closestDist = dist;
           closestHole = holeNum;
         }
@@ -723,7 +733,7 @@ export default function App() {
 
     if (closestHole && closestHole === currentHole + 1 && isHoleComplete(currentHole)) {
       nearTeeCount.current++;
-      if (nearTeeCount.current >= LOITER_THRESHOLD) {
+      if (nearTeeCount.current >= NEXT_HOLE_LOITER_THRESHOLD) {
         changeHole(closestHole - currentHole);
         nearTeeCount.current = 0;
       }
@@ -1309,6 +1319,8 @@ export default function App() {
     setApproachDistanceOverride(null);
     setHasManuallySelectedApproachClub(false);
     setSurfaceOverride(null);
+    teeEntryTime.current = null;
+    teeAutoStartFired.current = false;
 
     // Restore club selections if the next hole has saved clubs, otherwise default
     const nextHoleData = holeStats[nextHole];
