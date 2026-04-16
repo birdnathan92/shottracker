@@ -659,9 +659,9 @@ export default function App() {
     const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
     if (!course?.holeMapping) return;
 
-    const TEE_GEOFENCE_METERS = 4.572;  // 5 yards
+    const TEE_GEOFENCE_METERS = 6.4008; // 7 yards
     const LOITER_SECONDS = 5;            // seconds inside geofence before auto-start
-    const NEXT_HOLE_GEOFENCE_METERS = 4.572;
+    const NEXT_HOLE_GEOFENCE_METERS = 6.4008;
     const NEXT_HOLE_LOITER_THRESHOLD = 3; // GPS updates (next-hole advance stays count-based)
 
     // Determine the selected tee box color from courseName (e.g., "Course (Blue)" → "Blue")
@@ -671,14 +671,14 @@ export default function App() {
       ? course.teeBoxes?.find(tb => tb.name === selectedTeeBoxName)?.color || null
       : null;
 
-    // --- 5-yard geofence around current hole's tee box (time-based loiter) ---
+    // --- 7-yard geofence around the selected tee box only (time-based loiter) ---
     const currentMapping = course.holeMapping[currentHole - 1];
     if (currentMapping && !isTracking) {
       let insideGeofence = false;
       for (const feature of currentMapping.features) {
         if (feature.type !== 'tee_box' || !feature.coordinates) continue;
-        // Match selected tee box color if known, otherwise accept any tee
-        if (selectedTeeColor && feature.teeBoxColor !== selectedTeeColor) continue;
+        // Only activate for the tee box the user selected at round start; skip all others
+        if (!selectedTeeColor || feature.teeBoxColor !== selectedTeeColor) continue;
         const dist = haversineDistance(
           currentPos.lat, currentPos.lng,
           feature.coordinates.lat, feature.coordinates.lng
