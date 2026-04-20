@@ -1,13 +1,32 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
+// Don't throw when the env vars are missing — that blanks the app at boot.
+// The app already checks isSupabaseAvailable() before calling supabaseDb
+// methods, and each method below returns a safe fallback when the client
+// isn't initialised. This lets the native iOS build run without Supabase
+// creds (e.g. during an initial CI build) while still behaving correctly
+// once creds are provided.
+const hasSupabaseCreds = Boolean(supabaseUrl && supabaseAnonKey);
+
+if (!hasSupabaseCreds) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    '[supabaseClient] VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY missing — running in local-only mode.',
+  );
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase: SupabaseClient = hasSupabaseCreds
+  ? createClient(supabaseUrl!, supabaseAnonKey!)
+  // Stub client: any call against it will reject at runtime, but importing
+  // this module will not throw. Callers should gate on isSupabaseAvailable().
+  : (new Proxy({}, {
+      get() {
+        throw new Error('Supabase is not configured — check VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY.');
+      },
+    }) as unknown as SupabaseClient);
 
 // Types for database operations
 export interface DbRound {

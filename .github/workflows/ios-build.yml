@@ -30,8 +30,11 @@ jobs:
       - name: Build web bundle
         run: npm run build
         env:
-          # Inject any build-time env if needed (populate as repo secrets)
+          # Inject build-time env from GitHub repo secrets.
+          # Set these in Settings → Secrets and variables → Actions.
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Capacitor sync iOS
         run: npx cap sync ios
