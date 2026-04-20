@@ -80,7 +80,8 @@ public class VolumeButtonPlugin: CAPPlugin {
             let vv = MPVolumeView(frame: CGRect(x: -2000, y: -2000, width: 1, height: 1))
             vv.alpha = 0.001
             vv.isUserInteractionEnabled = false
-            vv.showsRouteButton = false
+            // (showsRouteButton was deprecated in iOS 13; the route button is
+            //  harmless off-screen anyway, so we simply don't touch it.)
             window.addSubview(vv)
             self.hiddenVolumeView = vv
             // MPVolumeView builds its slider asynchronously; wait a tick.
