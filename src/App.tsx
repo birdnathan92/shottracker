@@ -2965,6 +2965,28 @@ Requirements:
                 </div>
               </div>
 
+              {/* Surface Indicator (Mapping Mode only) — tells the user where the app thinks they are */}
+              {isMappingCollectionMode && (() => {
+                const surface = getUserSurfaceType();
+                if (!surface) return null;
+                const surfaceConfig: Record<string, { label: string; className: string }> = {
+                  fairway: { label: 'Fairway', className: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+                  rough: { label: 'Rough', className: 'bg-amber-100 text-amber-700 border-amber-200' },
+                  green: { label: 'Green', className: 'bg-green-100 text-green-700 border-green-200' },
+                  tee_box: { label: 'Tee Box', className: 'bg-stone-100 text-stone-700 border-stone-200' },
+                  fairway_bunker: { label: 'Fairway Bunker', className: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
+                  greenside_bunker: { label: 'Greenside Bunker', className: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
+                };
+                const cfg = surfaceConfig[surface];
+                if (!cfg) return null;
+                return (
+                  <div className={`w-full text-center py-1.5 rounded-xl border text-xs font-bold ${cfg.className}`}>
+                    <MapPin size={12} className="inline mr-1 -mt-0.5" strokeWidth={3} />
+                    {cfg.label}
+                  </div>
+                );
+              })()}
+
               {/* Distance to Green — placed below Sand Save / Up & Down so it sits in the player's eye line */}
               {(() => {
                 const greenDist = getDistancesToGreen();
