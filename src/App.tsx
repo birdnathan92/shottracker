@@ -3340,6 +3340,20 @@ Requirements:
                       const avgPar4 = par4Holes.length > 0 ? (par4Holes.reduce((sum, h) => sum + h.score, 0) / par4Holes.length).toFixed(2) : '--';
                       const avgPar5 = par5Holes.length > 0 ? (par5Holes.reduce((sum, h) => sum + h.score, 0) / par5Holes.length).toFixed(2) : '--';
 
+                      // Par 5 lay-up breakdown
+                      const par5WithLayUp = par5Holes.filter(h => h.layUp === true);
+                      const par5WithGoForIt = par5Holes.filter(h => h.layUp === false);
+                      const par5WithDecision = par5WithLayUp.length + par5WithGoForIt.length;
+                      const layUpPct = par5WithDecision > 0
+                        ? `${Math.round((par5WithLayUp.length / par5WithDecision) * 100)}%`
+                        : '--';
+                      const layUpAvgScore = par5WithLayUp.length > 0
+                        ? (par5WithLayUp.reduce((sum, h) => sum + h.score, 0) / par5WithLayUp.length).toFixed(2)
+                        : '--';
+                      const goForItAvgScore = par5WithGoForIt.length > 0
+                        ? (par5WithGoForIt.reduce((sum, h) => sum + h.score, 0) / par5WithGoForIt.length).toFixed(2)
+                        : '--';
+
                       // Calculate scrambling from non-GIR holes only
                       const nonGirHoles = holes.filter(h => !h.gir);
                       const scramblingPct = nonGirHoles.length > 0 ? formatPct(upAndDowns, nonGirHoles.length) : '0%';
@@ -3350,6 +3364,9 @@ Requirements:
                         { label: 'Avg Score: Par 3s', value: avgPar3 },
                         { label: 'Avg Score: Par 4s', value: avgPar4 },
                         { label: 'Avg Score: Par 5s', value: avgPar5 },
+                        { label: 'Lay Up %', value: layUpPct },
+                        { label: 'Lay Up Avg. Score', value: layUpAvgScore },
+                        { label: 'Go For It Avg. Score', value: goForItAvgScore },
                         { label: 'Fairway Accuracy', value: formatPct(fairwayHits, par45Played) },
                         { label: 'Left Tendency', value: formatPct(leftMisses, par45Played) },
                         { label: 'Right Tendency', value: formatPct(rightMisses, par45Played) },
