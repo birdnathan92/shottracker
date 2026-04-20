@@ -62,9 +62,21 @@ public class VolumeButtonPlugin: CAPPlugin {
 
         // Inject a hidden MPVolumeView so we can programmatically set the volume
         // (which suppresses the iOS volume HUD flash on each press).
-        if let window = UIApplication.shared.connectedScenes
-            .compactMap({ ($0 as? UIWindowScene)?.keyWindow })
-            .first ?? UIApplication.shared.windows.first {
+        // Use an iOS-14-safe window lookup: UIWindowScene.keyWindow is iOS 15+,
+        // so walk the scene's windows and pick the key one manually.
+        let foundWindow: UIWindow? = {
+            for scene in UIApplication.shared.connectedScenes {
+                guard let ws = scene as? UIWindowScene else { continue }
+                if let key = ws.windows.first(where: { $0.isKeyWindow }) {
+                    return key
+                }
+                if let first = ws.windows.first {
+                    return first
+                }
+            }
+            return UIApplication.shared.windows.first
+        }()
+        if let window = foundWindow {
             let vv = MPVolumeView(frame: CGRect(x: -2000, y: -2000, width: 1, height: 1))
             vv.alpha = 0.001
             vv.isUserInteractionEnabled = false

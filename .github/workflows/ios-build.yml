@@ -44,6 +44,7 @@ jobs:
       - name: Build unsigned xcarchive
         run: |
           cd ios/App
+          set -o pipefail
           xcodebuild \
             -workspace App.xcworkspace \
             -scheme App \
@@ -55,8 +56,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            | xcpretty && exit ${PIPESTATUS[0]}
+            PROVISIONING_PROFILE_SPECIFIER=""
 
       - name: Package into unsigned .ipa
         run: |
