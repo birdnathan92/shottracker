@@ -47,12 +47,17 @@ public class VolumeButtonPlugin: CAPPlugin {
     }
 
     private func beginListening() {
-        guard !isListening else { return }
+        guard !isListening else {
+            NSLog("[VolumeButtonPlugin] beginListening: already listening, skipping")
+            return
+        }
+        NSLog("[VolumeButtonPlugin] beginListening: activating audio session")
 
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.ambient, options: [.mixWithOthers])
             try session.setActive(true)
+            NSLog("[VolumeButtonPlugin] AVAudioSession active, outputVolume=\(session.outputVolume)")
         } catch {
             NSLog("[VolumeButtonPlugin] Failed to activate AVAudioSession: \(error)")
             return
@@ -105,6 +110,7 @@ public class VolumeButtonPlugin: CAPPlugin {
             // Ignore the programmatic reset we issue ourselves.
             if self.ignoreNextChange {
                 self.ignoreNextChange = false
+                NSLog("[VolumeButtonPlugin] KVO: ignoring programmatic reset (\(oldV) → \(newV))")
                 return
             }
 
@@ -117,6 +123,7 @@ public class VolumeButtonPlugin: CAPPlugin {
                 return
             }
 
+            NSLog("[VolumeButtonPlugin] emit \(direction) (\(oldV) → \(newV))")
             self.notifyListeners(direction, data: [:])
 
             // Reset volume back to the middle so the next press registers too.

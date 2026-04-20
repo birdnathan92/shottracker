@@ -850,33 +850,70 @@ export default function App() {
   // Maps a Volume Up press to the same smart-routing logic the Enter key uses:
   //   1) Mark Shot (mapping mode), else 2) Measure Tee Shot, else 3) Mark Ball.
   // No-op on web / android / non-native platforms.
+  //
+  // A visible status pill (see debug badge below) exposes the listener's
+  // state and the last button it routed to, so we can tell at a glance
+  // whether the plugin is failing to start or the event isn't firing.
+  const [volumeDebug, setVolumeDebug] = useState<{
+    status: 'idle' | 'starting' | 'listening' | 'error';
+    lastEvent: string | null;
+    lastError: string | null;
+  }>({ status: 'idle', lastEvent: null, lastError: null });
+
   useEffect(() => {
     if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') return;
     let upSub: { remove: () => void } | null = null;
+    let downSub: { remove: () => void } | null = null;
     let cancelled = false;
+    setVolumeDebug(d => ({ ...d, status: 'starting' }));
+    console.log('[VolumeButton] calling start()');
 
-    const routeShutter = () => {
+    const routeShutter = (source: string) => {
       const activeTag = document.activeElement?.tagName.toLowerCase();
-      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') return;
+      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
+        setVolumeDebug(d => ({ ...d, lastEvent: `${source} (skipped — in input)` }));
+        return;
+      }
       const markShotBtn = document.getElementById('mark-shot-btn');
       const measureBtn = document.getElementById('measure-btn');
       const markBallBtn = document.getElementById('mark-ball-btn');
-      if (markShotBtn) (markShotBtn as HTMLElement).click();
-      else if (measureBtn) (measureBtn as HTMLElement).click();
-      else if (markBallBtn) (markBallBtn as HTMLElement).click();
+      let clicked = 'none';
+      if (markShotBtn) { (markShotBtn as HTMLElement).click(); clicked = 'mark-shot'; }
+      else if (measureBtn) { (measureBtn as HTMLElement).click(); clicked = 'measure'; }
+      else if (markBallBtn) { (markBallBtn as HTMLElement).click(); clicked = 'mark-ball'; }
+      setVolumeDebug(d => ({ ...d, lastEvent: `${source} → ${clicked}` }));
+      console.log(`[VolumeButton] ${source} routed → ${clicked}`);
     };
 
     VolumeButton.start()
-      .then(() => VolumeButton.addListener('volumeUp', routeShutter))
-      .then(handle => {
-        if (cancelled) { handle.remove(); return; }
-        upSub = handle;
+      .then(result => {
+        console.log('[VolumeButton] start resolved:', result);
+        return Promise.all([
+          VolumeButton.addListener('volumeUp', () => routeShutter('UP')),
+          VolumeButton.addListener('volumeDown', () => routeShutter('DOWN')),
+        ]);
       })
-      .catch(err => console.warn('[VolumeButton] start failed:', err));
+      .then(([upHandle, downHandle]) => {
+        if (cancelled) {
+          upHandle.remove();
+          downHandle.remove();
+          return;
+        }
+        upSub = upHandle;
+        downSub = downHandle;
+        setVolumeDebug(d => ({ ...d, status: 'listening' }));
+        console.log('[VolumeButton] listeners attached');
+      })
+      .catch(err => {
+        const msg = err?.message || String(err);
+        console.warn('[VolumeButton] start failed:', msg);
+        setVolumeDebug(d => ({ ...d, status: 'error', lastError: msg }));
+      });
 
     return () => {
       cancelled = true;
       upSub?.remove();
+      downSub?.remove();
       VolumeButton.stop().catch(() => {});
     };
   }, []);
@@ -2338,6 +2375,26 @@ Requirements:
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 font-sans selection:bg-emerald-100">
+      {/* Temporary debug: iOS volume-button listener status. Shows only on native iOS. */}
+      {Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios' && (
+        <div
+          className={`fixed top-1 left-1 z-[60] px-2 py-1 rounded-md text-[9px] font-mono font-bold shadow ${
+            volumeDebug.status === 'listening' ? 'bg-emerald-600 text-white' :
+            volumeDebug.status === 'starting'  ? 'bg-amber-500 text-white' :
+            volumeDebug.status === 'error'     ? 'bg-red-600 text-white' :
+                                                 'bg-stone-400 text-white'
+          }`}
+          onClick={() => {
+            // tap badge to copy last error to clipboard for easy sharing
+            const txt = `VOL ${volumeDebug.status} | last=${volumeDebug.lastEvent ?? '-'} | err=${volumeDebug.lastError ?? '-'}`;
+            navigator.clipboard?.writeText(txt).catch(() => {});
+          }}
+        >
+          VOL:{volumeDebug.status.toUpperCase()}
+          {volumeDebug.lastEvent && ` · ${volumeDebug.lastEvent}`}
+          {volumeDebug.lastError && ` · ERR`}
+        </div>
+      )}
       {/* Header - compact on tracker, full on other views */}
       {view === 'tracker' ? (
         <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-stone-200 px-4 py-2 flex items-center justify-between">
