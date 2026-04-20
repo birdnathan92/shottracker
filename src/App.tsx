@@ -1075,8 +1075,10 @@ export default function App() {
             setHoleStats(prev => {
               const cur = prev[currentHole] || { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 };
               if (onFairway) {
-                return { ...prev, [currentHole]: { ...cur, fairway: true, teeAccuracy: 'center' } };
+                // Fairway hit: clear any stale miss direction so the chevron row stays hidden.
+                return { ...prev, [currentHole]: { ...cur, fairway: true, teeAccuracy: null } };
               }
+              // Fairway miss: record side so the left/right chevron lights up automatically.
               return { ...prev, [currentHole]: { ...cur, fairway: false, teeAccuracy: side } };
             });
             console.log(`[FairwayAutoFill] hole ${currentHole}: ${onFairway ? 'HIT' : 'MISS ' + side} (perp=${perpYards.toFixed(1)}yd, halfW=${fairwayHalfWidth.toFixed(1)}yd)`);
