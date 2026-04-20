@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shaughnessy Golf Club — Hole 1</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+  .card { background: #f8faf5; border-radius: 24px; padding: 28px 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.4); max-width: 440px; width: 100%; }
+  h1 { font-size: 17px; color: #1a1a2e; text-align: center; margin-bottom: 2px; font-weight: 800; letter-spacing: -0.5px; }
+  .subtitle { font-size: 11px; color: #888; text-align: center; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 2px; }
+  .info-row { display: flex; justify-content: center; gap: 20px; margin-bottom: 14px; }
+  .info-item { text-align: center; }
+  .info-item .label { font-size: 8px; color: #999; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
+  .info-item .value { font-size: 18px; font-weight: 900; color: #2d5016; }
+  .info-item .tee-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
+  svg { display: block; margin: 0 auto; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 14px; }
+  .legend-item { display: flex; align-items: center; gap: 4px; font-size: 9px; color: #666; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.15); }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Shaughnessy Golf & Country Club</h1>
+  <p class="subtitle">Hole 1 — Par 5</p>
+  <div class="info-row">
+    <div class="info-item"><div class="label"><span class="tee-dot" style="background:#1a1a2e"></span>Black</div><div class="value">476</div></div>
+    <div class="info-item"><div class="label"><span class="tee-dot" style="background:#3b82f6"></span>Blue</div><div class="value">464</div></div>
+    <div class="info-item"><div class="label"><span class="tee-dot" style="background:#ccc"></span>White</div><div class="value">456</div></div>
+  </div>
+
+  <svg id="hole" viewBox="0 0 380 900" width="380" height="900"></svg>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#dcc46c"></div>Bunker</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#a8e890"></div>Green</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#7ec863"></div>Fairway</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#3a6b2e"></div>Rough</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#2a4d20"></div>Trees</div>
+  </div>
+</div>
+
+<script>
+// ===== Hole 1 coordinates (decimal degrees) =====
+const P = {
+  black:  { lat: 49.23198889, lng: -123.20771111 },
+  blue:   { lat: 49.23209167, lng: -123.20769444 },
+  white:  { lat: 49.23215556, lng: -123.20771389 },
+  fw1:    { lat: 49.23317500, lng: -123.20734722 },
+  fw2:    { lat: 49.23369722, lng: -123.20719167 },
+  fw3:    { lat: 49.23408333, lng: -123.20718056 },
+  fw4:    { lat: 49.23415833, lng: -123.20719444 },
+  fw5:    { lat: 49.23475000, lng: -123.20734722 },
+  fw6:    { lat: 49.23523611, lng: -123.20727222 },
+  fw7:    { lat: 49.23557222, lng: -123.20713056 },
+  front:  { lat: 49.23569167, lng: -123.20705000 },
+  middle: { lat: 49.23577778, lng: -123.20696944 },
+  back:   { lat: 49.23586667, lng: -123.20689167 },
+};
+
+// ===== SVG Setup =====
+const W = 380, H = 900, PAD = 50;
+const svg = document.getElementById('hole');
+
+// ===== Coordinate transform =====
+const allLats = Object.values(P).map(p => p.lat);
+const allLngs = Object.values(P).map(p => p.lng);
+const minLat = Math.min(...allLats) - 0.00008;
+const maxLat = Math.max(...allLats) + 0.00012;
+const minLng = Math.min(...allLngs) - 0.00025;
+const maxLng = Math.max(...allLngs) + 0.00025;
+const mPerDegLat = 111320;
+const mPerDegLng = 111320 * Math.cos(49.234 * Math.PI / 180);
+const spanY = (maxLat - minLat) * mPerDegLat;
+const spanX = (maxLng - minLng) * mPerDegLng;
+const scale = Math.min((W - PAD*2) / spanX, (H - PAD*2) / spanY);
+
+function toSVG(p) {
+  const mx = (p.lng - minLng) * mPerDegLng * scale;
+  const my = (p.lat - minLat) * mPerDegLat * scale;
+  return { x: PAD + mx, y: (H - PAD) - my };
+}
+
+// ===== Helpers =====
+function el(tag, attrs) {
+  const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k,v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+  return e;
+}
+
+function perp(a, b, d) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len = Math.sqrt(dx*dx + dy*dy) || 1;
+  return { x: -dy/len * d, y: dx/len * d };
+}
+
+function smoothPath(pts, close) {
+  if (pts.length < 2) return '';
+  let d = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) {
+    const p0 = pts[Math.max(0, i-2)];
+    const p1 = pts[i-1];
+    const p2 = pts[i];
+    const p3 = pts[Math.min(pts.length-1, i+1)];
+    const cp1x = p1.x + (p2.x - p0.x) / 5;
+    const cp1y = p1.y + (p2.y - p0.y) / 5;
+    const cp2x = p2.x - (p3.x - p1.x) / 5;
+    const cp2y = p2.y - (p3.y - p1.y) / 5;
+    d += ` C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+  }
+  if (close) d += ' Z';
+  return d;
+}
+
+function blobPath(cx, cy, rx, ry, irregularity, points) {
+  const pts = [];
+  for (let i = 0; i < points; i++) {
+    const a = (i / points) * Math.PI * 2;
+    const rVar = 1 + (Math.sin(a * 3.7 + cx) * 0.3 + Math.cos(a * 2.3 + cy) * 0.2) * irregularity;
+    pts.push({
+      x: cx + Math.cos(a) * rx * rVar,
+      y: cy + Math.sin(a) * ry * rVar
+    });
+  }
+  pts.push(pts[0]); // close
+  return smoothPath(pts, true);
+}
+
+// ===== Defs: gradients, filters =====
+const defs = el('defs', {});
+
+// Tree texture pattern
+const treePat = el('pattern', { id: 'trees', width: 12, height: 12, patternUnits: 'userSpaceOnUse' });
+treePat.appendChild(el('rect', { width: 12, height: 12, fill: '#2a4d20' }));
+treePat.appendChild(el('circle', { cx: 3, cy: 3, r: 4, fill: '#1e3a16', opacity: 0.5 }));
+treePat.appendChild(el('circle', { cx: 9, cy: 9, r: 5, fill: '#234a1a', opacity: 0.4 }));
+defs.appendChild(treePat);
+
+// Sand texture
+const sandPat = el('pattern', { id: 'sand', width: 6, height: 6, patternUnits: 'userSpaceOnUse' });
+sandPat.appendChild(el('rect', { width: 6, height: 6, fill: '#dcc46c' }));
+sandPat.appendChild(el('circle', { cx: 1, cy: 1, r: 0.5, fill: '#c4a84e', opacity: 0.5 }));
+sandPat.appendChild(el('circle', { cx: 4, cy: 4, r: 0.7, fill: '#e8d88a', opacity: 0.4 }));
+defs.appendChild(sandPat);
+
+// Green gradient
+const greenGrad = el('radialGradient', { id: 'greenGrad', cx: '45%', cy: '45%', r: '55%' });
+greenGrad.appendChild(el('stop', { offset: '0%', 'stop-color': '#b8f0a0' }));
+greenGrad.appendChild(el('stop', { offset: '100%', 'stop-color': '#8ad670' }));
+defs.appendChild(greenGrad);
+
+// Drop shadow
+const shadow = el('filter', { id: 'shadow', x: '-20%', y: '-20%', width: '140%', height: '140%' });
+shadow.appendChild(el('feDropShadow', { dx: 1, dy: 2, 'stdDeviation': 2, 'flood-color': '#000', 'flood-opacity': 0.15 }));
+defs.appendChild(shadow);
+
+svg.appendChild(defs);
+
+// ===== Background: dark tree-lined rough =====
+svg.appendChild(el('rect', { x: 0, y: 0, width: W, height: H, rx: 16, fill: 'url(#trees)' }));
+
+// ===== Centerline & fairway polygon =====
+const teeMid = {
+  lat: (P.black.lat + P.blue.lat + P.white.lat) / 3,
+  lng: (P.black.lng + P.blue.lng + P.white.lng) / 3
+};
+const centerCoords = [teeMid, P.fw1, P.fw2, P.fw3, P.fw4, P.fw5, P.fw6, P.fw7, P.middle];
+const center = centerCoords.map(toSVG);
+
+// Fairway widths per segment (SVG pixels): tee area → narrow → widens → narrows to green
+const fwWidths = [18, 30, 34, 36, 36, 34, 30, 24, 14];
+
+// Build rough outline (wider than fairway)
+const roughMult = 2.2;
+function buildOutline(pts, widths, mult) {
+  const left = [], right = [];
+  for (let i = 0; i < pts.length; i++) {
+    const prev = pts[Math.max(0, i-1)];
+    const next = pts[Math.min(pts.length-1, i+1)];
+    const off = perp(prev, next, widths[i] * mult);
+    left.push({ x: pts[i].x + off.x, y: pts[i].y + off.y });
+    right.push({ x: pts[i].x - off.x, y: pts[i].y - off.y });
+  }
+  return [...left, ...[...right].reverse()];
+}
+
+// Light rough
+const lightRoughPts = buildOutline(center, fwWidths, 1.8);
+svg.appendChild(el('path', {
+  d: smoothPath(lightRoughPts, true),
+  fill: '#3a6b2e',
+  opacity: 0.85
+}));
+
+// Semi-rough
+const semiRoughPts = buildOutline(center, fwWidths, 1.35);
+svg.appendChild(el('path', {
+  d: smoothPath(semiRoughPts, true),
+  fill: '#4a8a3a',
+  opacity: 0.8
+}));
+
+// Fairway
+const fairwayPts = buildOutline(center, fwWidths, 1.0);
+const fairwayPathD = smoothPath(fairwayPts, true);
+svg.appendChild(el('path', { d: fairwayPathD, fill: '#7ec863' }));
+
+// Fairway mowing stripes
+for (let i = 0; i < center.length - 1; i++) {
+  const a = center[i], b = center[i+1];
+  const segLen = Math.sqrt((b.x-a.x)**2 + (b.y-a.y)**2);
+  const steps = Math.max(3, Math.round(segLen / 8));
+  for (let s = 0; s < steps; s++) {
+    const t = s / steps;
+    const mx = a.x + (b.x - a.x) * t;
+    const my = a.y + (b.y - a.y) * t;
+    const off = perp(a, b, fwWidths[i] * 0.85);
+    if (s % 2 === 0) {
+      svg.appendChild(el('line', {
+        x1: (mx + off.x).toFixed(1), y1: (my + off.y).toFixed(1),
+        x2: (mx - off.x).toFixed(1), y2: (my - off.y).toFixed(1),
+        stroke: s % 4 === 0 ? '#72b858' : '#86d26a',
+        'stroke-width': 4, opacity: 0.3
+      }));
+    }
+  }
+}
+
+// ===== Green complex (from satellite image) =====
+const greenCenter = toSVG(P.middle);
+const gc = greenCenter;
+
+// Green fringe (collar) - slightly irregular
+svg.appendChild(el('path', {
+  d: blobPath(gc.x, gc.y, 34, 28, 0.15, 24),
+  fill: '#6ab854'
+}));
+
+// Green surface with gradient
+svg.appendChild(el('path', {
+  d: blobPath(gc.x, gc.y, 26, 20, 0.12, 24),
+  fill: 'url(#greenGrad)',
+  stroke: '#7ec863',
+  'stroke-width': 1.5
+}));
+
+// ===== Bunkers from satellite image =====
+// 4 bunkers around the green: upper-left, lower-left, upper-right, lower-right (irregular blobs)
+
+// Lower-left bunker (large, kidney-shaped)
+const bLL = { x: gc.x - 38, y: gc.y + 18 };
+svg.appendChild(el('path', {
+  d: blobPath(bLL.x, bLL.y, 14, 9, 0.35, 16),
+  fill: 'url(#sand)', stroke: '#b8a44e', 'stroke-width': 0.8, filter: 'url(#shadow)'
+}));
+
+// Upper-left bunker (medium)
+const bUL = { x: gc.x - 32, y: gc.y - 16 };
+svg.appendChild(el('path', {
+  d: blobPath(bUL.x, bUL.y, 11, 8, 0.4, 14),
+  fill: 'url(#sand)', stroke: '#b8a44e', 'stroke-width': 0.8, filter: 'url(#shadow)'
+}));
+
+// Far upper-left bunker (small, further out)
+const bFUL = { x: gc.x - 42, y: gc.y - 5 };
+svg.appendChild(el('path', {
+  d: blobPath(bFUL.x, bFUL.y, 8, 6, 0.45, 12),
+  fill: 'url(#sand)', stroke: '#b8a44e', 'stroke-width': 0.8, filter: 'url(#shadow)'
+}));
+
+// Upper-right bunker (medium-large)
+const bUR = { x: gc.x + 28, y: gc.y - 20 };
+svg.appendChild(el('path', {
+  d: blobPath(bUR.x, bUR.y, 13, 9, 0.35, 16),
+  fill: 'url(#sand)', stroke: '#b8a44e', 'stroke-width': 0.8, filter: 'url(#shadow)'
+}));
+
+// Lower-right bunker (large, sprawling)
+const bLR = { x: gc.x + 34, y: gc.y + 14 };
+svg.appendChild(el('path', {
+  d: blobPath(bLR.x, bLR.y, 16, 10, 0.4, 18),
+  fill: 'url(#sand)', stroke: '#b8a44e', 'stroke-width': 0.8, filter: 'url(#shadow)'
+}));
+
+// ===== Green markers (F/M/B) =====
+[
+  { p: P.front, label: 'F', color: '#ef4444' },
+  { p: P.middle, label: 'M', color: '#ef4444' },
+  { p: P.back, label: 'B', color: '#ef4444' }
+].forEach(({p, label, color}) => {
+  const s = toSVG(p);
+  svg.appendChild(el('circle', { cx: s.x, cy: s.y, r: 3.5, fill: color, stroke: '#fff', 'stroke-width': 1.2 }));
+  svg.appendChild(el('text', { x: s.x + 7, y: s.y + 3, fill: '#fff', 'font-size': 8, 'font-weight': 700 })).textContent = label;
+});
+
+// Flag pin
+const flagS = toSVG(P.middle);
+svg.appendChild(el('line', { x1: flagS.x, y1: flagS.y, x2: flagS.x, y2: flagS.y - 22, stroke: '#555', 'stroke-width': 1.2 }));
+const flagPoly = el('polygon', { points: `${flagS.x},${flagS.y-22} ${flagS.x+9},${flagS.y-18.5} ${flagS.x},${flagS.y-15}`, fill: '#ef4444' });
+svg.appendChild(flagPoly);
+
+// ===== Tee boxes =====
+const teeData = [
+  { p: P.black, color: '#1a1a2e', label: 'BLK' },
+  { p: P.blue,  color: '#3b82f6', label: 'BLU' },
+  { p: P.white, color: '#d4d4d4', label: 'WHT' },
+];
+teeData.forEach(({p, color}) => {
+  const s = toSVG(p);
+  // Tee box pad
+  svg.appendChild(el('rect', {
+    x: s.x - 16, y: s.y - 6, width: 32, height: 12, rx: 3,
+    fill: color, stroke: '#fff', 'stroke-width': 1.5, filter: 'url(#shadow)'
+  }));
+  // Tee markers
+  svg.appendChild(el('circle', { cx: s.x - 5, cy: s.y, r: 1.5, fill: '#fff', opacity: 0.7 }));
+  svg.appendChild(el('circle', { cx: s.x + 5, cy: s.y, r: 1.5, fill: '#fff', opacity: 0.7 }));
+});
+
+// ===== Fairway waypoint dots =====
+[P.fw1, P.fw2, P.fw3, P.fw4, P.fw5, P.fw6, P.fw7].forEach((p) => {
+  const s = toSVG(p);
+  svg.appendChild(el('circle', { cx: s.x, cy: s.y, r: 2.5, fill: '#f59e0b', stroke: '#fff', 'stroke-width': 1, opacity: 0.6 }));
+});
+
+// ===== Distance markers along right edge =====
+function haversine(a, b) {
+  const R = 6371000;
+  const dLat = (b.lat-a.lat)*Math.PI/180;
+  const dLng = (b.lng-a.lng)*Math.PI/180;
+  const x = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x));
+}
+
+const distMarkers = [
+  { at: P.fw1,   label: '147' },
+  { at: P.fw3,   label: '258' },
+  { at: P.fw5,   label: '337' },
+  { at: P.fw7,   label: '438' },
+];
+distMarkers.forEach(({at, label}) => {
+  const s = toSVG(at);
+  const mx = s.x + 46, my = s.y;
+  // Pill
+  svg.appendChild(el('rect', {
+    x: mx - 20, y: my - 9, width: 40, height: 18, rx: 9,
+    fill: 'rgba(0,0,0,0.65)'
+  }));
+  const txt = el('text', {
+    x: mx, y: my + 4, 'text-anchor': 'middle',
+    fill: '#fff', 'font-size': 9, 'font-weight': 700
+  });
+  txt.textContent = label + ' yd';
+  svg.appendChild(txt);
+});
+
+// ===== "Remaining" distance labels on left =====
+const remainMarkers = [
+  { at: P.fw1,   yds: 476-147 },
+  { at: P.fw3,   yds: 476-258 },
+  { at: P.fw5,   yds: 476-337 },
+  { at: P.fw7,   yds: 476-438 },
+];
+remainMarkers.forEach(({at, yds}) => {
+  const s = toSVG(at);
+  const mx = s.x - 46, my = s.y;
+  svg.appendChild(el('rect', {
+    x: mx - 20, y: my - 9, width: 40, height: 18, rx: 9,
+    fill: 'rgba(16,80,16,0.7)'
+  }));
+  const txt = el('text', {
+    x: mx, y: my + 4, 'text-anchor': 'middle',
+    fill: '#a8e890', 'font-size': 9, 'font-weight': 700
+  });
+  txt.textContent = yds + ' left';
+  svg.appendChild(txt);
+});
+
+// ===== Hole number badge =====
+svg.appendChild(el('circle', { cx: W/2, cy: 26, r: 17, fill: '#1a1a2e', filter: 'url(#shadow)' }));
+const badge = el('text', { x: W/2, y: 32, 'text-anchor': 'middle', fill: '#fff', 'font-size': 17, 'font-weight': 900 });
+badge.textContent = '1';
+svg.appendChild(badge);
+
+// ===== Total distance at bottom =====
+const total = el('text', { x: W/2, y: H - 12, 'text-anchor': 'middle', fill: 'rgba(255,255,255,0.6)', 'font-size': 10, 'font-weight': 600 });
+total.textContent = '476 yards — Par 5';
+svg.appendChild(total);
+</script>
+</body>
+</html>
