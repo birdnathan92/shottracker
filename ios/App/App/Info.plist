@@ -45,5 +45,12 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<!-- Required: iOS silently denies Geolocation to the WKWebView without this key. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Golf Drive Tracker uses your location to measure drive distance, show distances to the green, and auto-detect which hole you're playing.</string>
+	<!-- Required on iOS 11+ if the app ever requests "always" permission; the Geolocation
+	     API only uses "when in use" so this key acts as a fallback string. -->
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Golf Drive Tracker uses your location to measure drive distance, show distances to the green, and auto-detect which hole you're playing.</string>
 </dict>
 </plist>
