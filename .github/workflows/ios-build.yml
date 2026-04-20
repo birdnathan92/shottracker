@@ -1,0 +1,75 @@
+name: Build iOS (unsigned IPA)
+
+# Builds the Capacitor-wrapped iOS app on GitHub's macOS runners and
+# publishes an unsigned .ipa as a workflow artifact. Download and
+# re-sign with AltStore / Sideloadly to install on a personal device.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Build web bundle
+        run: npm run build
+        env:
+          # Inject any build-time env if needed (populate as repo secrets)
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Capacitor sync iOS
+        run: npx cap sync ios
+
+      - name: Setup CocoaPods
+        run: |
+          gem install cocoapods --no-document
+          cd ios/App && pod install --repo-update
+
+      - name: Build unsigned xcarchive
+        run: |
+          cd ios/App
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath "$PWD/build/App.xcarchive" \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            | xcpretty && exit ${PIPESTATUS[0]}
+
+      - name: Package into unsigned .ipa
+        run: |
+          cd ios/App/build/App.xcarchive/Products/Applications
+          mkdir -p Payload
+          cp -R App.app Payload/
+          zip -qr "${{ github.workspace }}/GolfDriveTracker-unsigned.ipa" Payload
+          ls -la "${{ github.workspace }}/GolfDriveTracker-unsigned.ipa"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GolfDriveTracker-unsigned-ipa
+          path: GolfDriveTracker-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14

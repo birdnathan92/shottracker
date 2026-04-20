@@ -6,9 +6,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
+import { Capacitor } from '@capacitor/core';
 import { supabaseDb, DbCourseDataPoint } from './supabaseClient';
 import { isSupabaseAvailable } from './useSupabaseSync';
 import { calculateHoleSG, calculateRoundSG, formatSG, sgColor, sgBgColor } from './strokesGainedCalc';
+import VolumeButton from './plugins/volumeButton';
 import {
   MapPin,
   Pencil,
@@ -842,6 +844,41 @@ export default function App() {
 
     window.addEventListener('keydown', handleHardwareButton);
     return () => window.removeEventListener('keydown', handleHardwareButton);
+  }, []);
+
+  // --- iOS HARDWARE VOLUME BUTTON LISTENER (Capacitor native only) ---
+  // Maps a Volume Up press to the same smart-routing logic the Enter key uses:
+  //   1) Mark Shot (mapping mode), else 2) Measure Tee Shot, else 3) Mark Ball.
+  // No-op on web / android / non-native platforms.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') return;
+    let upSub: { remove: () => void } | null = null;
+    let cancelled = false;
+
+    const routeShutter = () => {
+      const activeTag = document.activeElement?.tagName.toLowerCase();
+      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') return;
+      const markShotBtn = document.getElementById('mark-shot-btn');
+      const measureBtn = document.getElementById('measure-btn');
+      const markBallBtn = document.getElementById('mark-ball-btn');
+      if (markShotBtn) (markShotBtn as HTMLElement).click();
+      else if (measureBtn) (measureBtn as HTMLElement).click();
+      else if (markBallBtn) (markBallBtn as HTMLElement).click();
+    };
+
+    VolumeButton.start()
+      .then(() => VolumeButton.addListener('volumeUp', routeShutter))
+      .then(handle => {
+        if (cancelled) { handle.remove(); return; }
+        upSub = handle;
+      })
+      .catch(err => console.warn('[VolumeButton] start failed:', err));
+
+    return () => {
+      cancelled = true;
+      upSub?.remove();
+      VolumeButton.stop().catch(() => {});
+    };
   }, []);
   // ------------------------------------------
   const handleStartDrive = () => {
