@@ -18,8 +18,20 @@ import AVFoundation
 import MediaPlayer
 import UIKit
 
+// Capacitor 6+ modern registration pattern. Conforming to CAPBridgedPlugin
+// makes the class self-describing (identifier + jsName + method list), so the
+// Capacitor bridge can find and invoke it via NSClassFromString lookup without
+// needing the Objective-C CAP_PLUGIN macro. This is more resilient to the
+// linker dead-stripping the registration at release-build time.
 @objc(VolumeButtonPlugin)
-public class VolumeButtonPlugin: CAPPlugin {
+public class VolumeButtonPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "VolumeButtonPlugin"
+    public let jsName = "VolumeButton"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stop",  returnType: CAPPluginReturnPromise),
+    ]
+
     private var audioSession: AVAudioSession?
     private var volumeObserver: NSKeyValueObservation?
     private var hiddenVolumeView: MPVolumeView?
@@ -32,14 +44,16 @@ public class VolumeButtonPlugin: CAPPlugin {
     private let restingVolume: Float = 0.5
     private var originalVolume: Float = 0.5
 
-    @objc func start(_ call: CAPPluginCall) {
+    @objc public func start(_ call: CAPPluginCall) {
+        NSLog("[VolumeButtonPlugin] start() invoked from JS")
         DispatchQueue.main.async {
             self.beginListening()
             call.resolve(["listening": self.isListening])
         }
     }
 
-    @objc func stop(_ call: CAPPluginCall) {
+    @objc public func stop(_ call: CAPPluginCall) {
+        NSLog("[VolumeButtonPlugin] stop() invoked from JS")
         DispatchQueue.main.async {
             self.endListening()
             call.resolve()
