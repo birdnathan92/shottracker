@@ -640,6 +640,8 @@ export default function App() {
   const lastMovedPos = React.useRef<Position | null>(null);
   const lastMovedTime = React.useRef<number>(Date.now());
   const autoStopTriggered = React.useRef(false);
+  const autoAdvancedFrom = React.useRef<Set<number>>(new Set());    // holes from which auto-advance has already fired
+  const autoFilledFairwayHoles = React.useRef<Set<number>>(new Set()); // holes where fairway/teeAccuracy was auto-filled
 
   // Check if current hole has all required stats filled in
   const isHoleComplete = (holeNum: number): boolean => {
@@ -661,9 +663,9 @@ export default function App() {
     const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
     if (!course?.holeMapping) return;
 
-    const TEE_GEOFENCE_METERS = 6.4008; // 7 yards
-    const LOITER_SECONDS = 10;           // seconds inside geofence before auto-start
-    const NEXT_HOLE_GEOFENCE_METERS = 6.4008;
+    const TEE_GEOFENCE_METERS = 10;     // 10 meters
+    const LOITER_SECONDS = 5;            // seconds inside geofence before auto-start
+    const NEXT_HOLE_GEOFENCE_METERS = 10;
     const NEXT_HOLE_LOITER_THRESHOLD = 3; // GPS updates (next-hole advance stays count-based)
 
     // Determine the selected tee box color from courseName (e.g., "Course (Blue)" → "Blue")
@@ -733,9 +735,15 @@ export default function App() {
       }
     }
 
-    if (closestHole && closestHole === currentHole + 1 && isHoleComplete(currentHole)) {
+    if (
+      closestHole &&
+      closestHole === currentHole + 1 &&
+      isHoleComplete(currentHole) &&
+      !autoAdvancedFrom.current.has(currentHole)
+    ) {
       nearTeeCount.current++;
       if (nearTeeCount.current >= NEXT_HOLE_LOITER_THRESHOLD) {
+        autoAdvancedFrom.current.add(currentHole);
         changeHole(closestHole - currentHole);
         nearTeeCount.current = 0;
       }
@@ -966,6 +974,112 @@ export default function App() {
               ...prev,
               [currentHole]: { ...prev[currentHole], approachClub: suggestedClubId }
             }));
+          }
+        }
+      }
+
+      // --- Auto-fill fairway hit/miss + tee accuracy from ball position ---
+      // Only for par 4+, only once per hole (user can override afterwards).
+      const currentStatsForFairway = holeStats[currentHole];
+      const parValue = currentStatsForFairway?.par ?? 4;
+      if (
+        parValue > 3 &&
+        courseName &&
+        !autoFilledFairwayHoles.current.has(currentHole)
+      ) {
+        const baseCourseName = courseName.replace(/\s*\(.*\)$/, '');
+        const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
+        const mapping = course?.holeMapping?.[currentHole - 1];
+        if (mapping) {
+          // Build centerline: selected tee → fairway points → middle of green
+          const teeBoxMatch = courseName.match(/\(([^)]+)\)$/);
+          const selectedTeeBoxName = teeBoxMatch ? teeBoxMatch[1] : null;
+          const selectedTeeColor = selectedTeeBoxName
+            ? course?.teeBoxes?.find(tb => tb.name === selectedTeeBoxName)?.color || null
+            : null;
+          const teeFeatures = mapping.features.filter(f => f.type === 'tee_box' && f.coordinates);
+          const selectedTee = selectedTeeColor
+            ? teeFeatures.find(f => f.teeBoxColor === selectedTeeColor)
+            : teeFeatures[0];
+          const middleGreenCoord = mapping.features.find(
+            f => f.type === 'green' && f.name === 'Middle of Green'
+          )?.coordinates;
+          const centerline: FeatureCoordinate[] = [];
+          if (selectedTee?.coordinates) centerline.push(selectedTee.coordinates);
+          mapping.features
+            .filter(f => f.type === 'fairway' && f.coordinates)
+            .forEach(f => centerline.push(f.coordinates!));
+          if (middleGreenCoord) centerline.push(middleGreenCoord);
+
+          if (centerline.length >= 2) {
+            // Flat-earth projection (same convention as getUserSurfaceType)
+            const M_PER_DEG_LAT = 111320;
+            const M_PER_DEG_LNG = 111320 * Math.cos(currentPos.lat * Math.PI / 180);
+            const px = currentPos.lng * M_PER_DEG_LNG;
+            const py = currentPos.lat * M_PER_DEG_LAT;
+
+            let minPerpDist = Infinity;
+            let sideCross = 0; // cross product sign for the closest segment
+            for (let i = 0; i < centerline.length - 1; i++) {
+              const ax = centerline[i].lng * M_PER_DEG_LNG;
+              const ay = centerline[i].lat * M_PER_DEG_LAT;
+              const bx = centerline[i + 1].lng * M_PER_DEG_LNG;
+              const by = centerline[i + 1].lat * M_PER_DEG_LAT;
+              const dx = bx - ax, dy = by - ay;
+              const lenSq = dx * dx + dy * dy;
+              if (lenSq === 0) continue;
+              const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+              const projX = ax + t * dx;
+              const projY = ay + t * dy;
+              const d = Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+              if (d < minPerpDist) {
+                minPerpDist = d;
+                // Cross product: segment dir × (point − A). Sign determines side.
+                // Positive = left of hole direction (tee → green), negative = right.
+                sideCross = dx * (py - ay) - dy * (px - ax);
+              }
+            }
+
+            const perpYards = minPerpDist * 1.09361;
+
+            // Fairway half-width — mirrors getUserSurfaceType logic
+            let fairwayHalfWidth = 15;
+            const holePoints = courseDataPoints.filter(dp => dp.hole_number === currentHole);
+            const fairwayPoints = holePoints.filter(dp => dp.area_type === 'fairway');
+            if (fairwayPoints.length >= 3) {
+              const fairwayPerpDists = fairwayPoints.map(fp => {
+                const fpx = fp.lng * M_PER_DEG_LNG;
+                const fpy = fp.lat * M_PER_DEG_LAT;
+                let minD = Infinity;
+                for (let i = 0; i < centerline.length - 1; i++) {
+                  const ax = centerline[i].lng * M_PER_DEG_LNG;
+                  const ay = centerline[i].lat * M_PER_DEG_LAT;
+                  const bx = centerline[i + 1].lng * M_PER_DEG_LNG;
+                  const by = centerline[i + 1].lat * M_PER_DEG_LAT;
+                  const ddx = bx - ax, ddy = by - ay;
+                  const ls = ddx * ddx + ddy * ddy;
+                  if (ls === 0) continue;
+                  const t = Math.max(0, Math.min(1, ((fpx - ax) * ddx + (fpy - ay) * ddy) / ls));
+                  const d = Math.sqrt((fpx - (ax + t * ddx)) ** 2 + (fpy - (ay + t * ddy)) ** 2);
+                  if (d < minD) minD = d;
+                }
+                return minD * 1.09361;
+              });
+              fairwayHalfWidth = Math.min(25, Math.max(10, Math.max(...fairwayPerpDists) * 1.1));
+            }
+
+            const onFairway = perpYards <= fairwayHalfWidth;
+            const side: 'left' | 'right' = sideCross > 0 ? 'left' : 'right';
+
+            autoFilledFairwayHoles.current.add(currentHole);
+            setHoleStats(prev => {
+              const cur = prev[currentHole] || { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 };
+              if (onFairway) {
+                return { ...prev, [currentHole]: { ...cur, fairway: true, teeAccuracy: 'center' } };
+              }
+              return { ...prev, [currentHole]: { ...cur, fairway: false, teeAccuracy: side } };
+            });
+            console.log(`[FairwayAutoFill] hole ${currentHole}: ${onFairway ? 'HIT' : 'MISS ' + side} (perp=${perpYards.toFixed(1)}yd, halfW=${fairwayHalfWidth.toFixed(1)}yd)`);
           }
         }
       }
@@ -2121,6 +2235,8 @@ Requirements:
     setIsRoundActive(false);
     setIsTracking(false);
     setStartPos(null);
+    autoAdvancedFrom.current.clear();
+    autoFilledFairwayHoles.current.clear();
     setView('home');
   };
 
