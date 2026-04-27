@@ -234,6 +234,7 @@ interface Round {
   holeStats: Record<number, HoleStats>;
   slope?: number;
   courseRating?: number;
+  approachShots?: ApproachShot[];
 }
 
 // Tee box colors for UI
@@ -272,6 +273,7 @@ interface ApproachShot {
   distance: number;
   club: string;
   timestamp: number;
+  proximityFeet?: number; // feet to middle of green at ball position, when GPS mapping data is available
 }
 
 // Swipeable drive card component — swipe reveals delete button, must tap to confirm
@@ -860,11 +862,31 @@ export default function App() {
       if (holeDistanceYards && remainingDistance && remainingDistance > 0 && driveDistanceYards < remainingDistance) {
         // This is an approach shot — remaining distance was already set in yards
         const approachClub = bag.find(c => c.id === selectedApproachClubId)?.name || 'Unknown';
+
+        // Calculate proximity to middle of green in feet (requires hole mapping data)
+        let proximityFeet: number | undefined;
+        const baseCourseName = courseName.replace(/\s*\(.*\)$/, '');
+        const activeCourse = courses.find(c => c.name === baseCourseName || c.name === courseName);
+        if (activeCourse?.holeMapping) {
+          const mapping = activeCourse.holeMapping[currentHole - 1];
+          const middleGreenCoord = mapping?.features.find(
+            f => f.type === 'green' && f.name === 'Middle of Green'
+          )?.coordinates;
+          if (middleGreenCoord) {
+            const distMeters = haversineDistance(
+              currentPos.lat, currentPos.lng,
+              middleGreenCoord.lat, middleGreenCoord.lng
+            );
+            proximityFeet = Math.round(distMeters * 3.28084);
+          }
+        }
+
         const newApproach: ApproachShot = {
           holeNumber: currentHole,
-          distance: driveDistanceYards, // store in yards for consistency
+          distance: driveDistanceYards,
           club: approachClub,
           timestamp: Date.now(),
+          ...(proximityFeet !== undefined && { proximityFeet }),
         };
         setApproachShots([...approachShots, newApproach]);
         setRemainingDistance(Math.max(0, remainingDistance - driveDistanceYards));
@@ -1192,6 +1214,30 @@ export default function App() {
       }))
       .sort((a, b) => b.attempts - a.attempts);
   }, [rounds, holeStats, isRoundActive]);
+
+  // Avg proximity to hole by approach distance bucket
+  const proximityByDistance = useMemo(() => {
+    const allShots: ApproachShot[] = [
+      ...rounds.flatMap(r => r.approachShots || []),
+      ...approachShots,
+    ].filter(s => s.proximityFeet !== undefined);
+
+    const buckets = [
+      { label: '200+ yds', min: 200, max: Infinity },
+      { label: 'Inside 200 yds', min: 150, max: 200 },
+      { label: 'Inside 150 yds', min: 100, max: 150 },
+      { label: 'Inside 100 yds', min: 50, max: 100 },
+      { label: 'Inside 50 yds', min: 0, max: 50 },
+    ];
+
+    return buckets.map(bucket => {
+      const shots = allShots.filter(s => s.distance >= bucket.min && s.distance < bucket.max);
+      const avgProximity = shots.length > 0
+        ? Math.round(shots.reduce((sum, s) => sum + s.proximityFeet!, 0) / shots.length)
+        : null;
+      return { label: bucket.label, count: shots.length, avgProximity };
+    });
+  }, [rounds, approachShots]);
 
   // Score Handlers
   const updateScore = (delta: number) => {
@@ -1993,6 +2039,7 @@ Requirements:
     setIsRoundActive(false);
     setIsTracking(false);
     setStartPos(null);
+    setApproachShots([]);
     setView('home');
   };
 
@@ -2012,6 +2059,7 @@ Requirements:
       holeStats: { ...holeStats },
       slope: activeSlope || undefined,
       courseRating: activeCourseRating || undefined,
+      approachShots: approachShots.length > 0 ? [...approachShots] : undefined,
     };
 
     setRounds([newRound, ...rounds]);
@@ -3219,6 +3267,44 @@ Requirements:
                               row.girPct >= 50 ? 'text-emerald-600' : row.girPct >= 25 ? 'text-amber-600' : 'text-red-500'
                             }`}>
                               {row.girPct}%
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Avg. Proximity to Hole by Approach Distance */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-bold text-stone-800">Avg. Proximity to Hole</h3>
+                {proximityByDistance.every(b => b.count === 0) ? (
+                  <div className="bg-white p-6 rounded-2xl text-center border border-dashed border-stone-200">
+                    <p className="text-stone-400 text-sm">No proximity data yet.</p>
+                    <p className="text-stone-300 text-xs mt-1">Requires GPS hole mapping to track where the ball lands.</p>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-2xl border border-stone-100 shadow-sm overflow-hidden">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="bg-stone-50 border-b border-stone-100">
+                          <th className="px-4 py-3 font-bold text-stone-400 uppercase text-[10px] tracking-widest">Distance</th>
+                          <th className="px-4 py-3 font-bold text-stone-400 uppercase text-[10px] tracking-widest text-center">Shots</th>
+                          <th className="px-4 py-3 font-bold text-stone-400 uppercase text-[10px] tracking-widest text-right">Avg. Proximity</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-50">
+                        {proximityByDistance.map(row => (
+                          <tr key={row.label} className={row.count === 0 ? 'opacity-40' : ''}>
+                            <td className="px-4 py-3 font-medium text-stone-700">{row.label}</td>
+                            <td className="px-4 py-3 text-center font-medium text-stone-500">{row.count}</td>
+                            <td className={`px-4 py-3 text-right font-bold ${
+                              row.avgProximity === null ? 'text-stone-300' :
+                              row.avgProximity <= 10 ? 'text-emerald-600' :
+                              row.avgProximity <= 20 ? 'text-amber-600' : 'text-red-500'
+                            }`}>
+                              {row.avgProximity !== null ? `${row.avgProximity} ft` : '—'}
                             </td>
                           </tr>
                         ))}
