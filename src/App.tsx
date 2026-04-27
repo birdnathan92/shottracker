@@ -6,11 +6,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
-import { Capacitor } from '@capacitor/core';
 import { supabaseDb, DbCourseDataPoint } from './supabaseClient';
 import { isSupabaseAvailable } from './useSupabaseSync';
 import { calculateHoleSG, calculateRoundSG, formatSG, sgColor, sgBgColor } from './strokesGainedCalc';
-import VolumeButton from './plugins/volumeButton';
 import {
   MapPin,
   Pencil,
@@ -237,6 +235,7 @@ interface Round {
   holeStats: Record<number, HoleStats>;
   slope?: number;
   courseRating?: number;
+  approachShots?: ApproachShot[];
 }
 
 // Tee box colors for UI
@@ -275,6 +274,7 @@ interface ApproachShot {
   distance: number;
   club: string;
   timestamp: number;
+  proximityFeet?: number; // feet to middle of green at ball position, when GPS mapping data is available
 }
 
 // Swipeable drive card component — swipe reveals delete button, must tap to confirm
@@ -846,57 +846,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleHardwareButton);
   }, []);
 
-  // --- iOS HARDWARE VOLUME BUTTON LISTENER (Capacitor native only) ---
-  // Maps a Volume Up press to the same smart-routing logic the Enter key uses:
-  //   1) Mark Shot (mapping mode), else 2) Measure Tee Shot, else 3) Mark Ball.
-  // No-op on web / android / non-native platforms.
-  //
-  // A visible status pill (see debug badge below) exposes the listener's
-  // state and the last button it routed to, so we can tell at a glance
-  // whether the plugin is failing to start or the event isn't firing.
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') return;
-    let upSub: { remove: () => void } | null = null;
-    let downSub: { remove: () => void } | null = null;
-    let cancelled = false;
-
-    const routeShutter = () => {
-      const activeTag = document.activeElement?.tagName.toLowerCase();
-      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') return;
-      const markShotBtn = document.getElementById('mark-shot-btn');
-      const measureBtn = document.getElementById('measure-btn');
-      const markBallBtn = document.getElementById('mark-ball-btn');
-      if (markShotBtn) (markShotBtn as HTMLElement).click();
-      else if (measureBtn) (measureBtn as HTMLElement).click();
-      else if (markBallBtn) (markBallBtn as HTMLElement).click();
-    };
-
-    VolumeButton.start()
-      .then(() => Promise.all([
-        VolumeButton.addListener('volumeUp', routeShutter),
-        VolumeButton.addListener('volumeDown', routeShutter),
-      ]))
-      .then(([upHandle, downHandle]) => {
-        if (cancelled) {
-          upHandle.remove();
-          downHandle.remove();
-          return;
-        }
-        upSub = upHandle;
-        downSub = downHandle;
-      })
-      .catch(err => {
-        console.warn('[VolumeButton] start failed:', err?.message || err);
-      });
-
-    return () => {
-      cancelled = true;
-      upSub?.remove();
-      downSub?.remove();
-      VolumeButton.stop().catch(() => {});
-    };
-  }, []);
-  // ------------------------------------------
   const handleStartDrive = () => {
     if (currentPos) {
       setStartPos(currentPos);
@@ -984,11 +933,28 @@ export default function App() {
       if (holeDistanceYards && remainingDistance && remainingDistance > 0 && driveDistanceYards < remainingDistance) {
         // This is an approach shot — remaining distance was already set in yards
         const approachClub = bag.find(c => c.id === selectedApproachClubId)?.name || 'Unknown';
+
+        // Proximity to middle of green in feet, when hole has GPS mapping data
+        let proximityFeet: number | undefined;
+        const baseCourseName = courseName.replace(/\s*\(.*\)$/, '');
+        const activeCourse = courses.find(c => c.name === baseCourseName || c.name === courseName);
+        const middleGreenCoord = activeCourse?.holeMapping?.[currentHole - 1]?.features.find(
+          f => f.type === 'green' && f.name === 'Middle of Green'
+        )?.coordinates;
+        if (middleGreenCoord) {
+          const distMeters = haversineDistance(
+            currentPos.lat, currentPos.lng,
+            middleGreenCoord.lat, middleGreenCoord.lng
+          );
+          proximityFeet = Math.round(distMeters * 3.28084);
+        }
+
         const newApproach: ApproachShot = {
           holeNumber: currentHole,
           distance: driveDistanceYards, // store in yards for consistency
           club: approachClub,
           timestamp: Date.now(),
+          ...(proximityFeet !== undefined && { proximityFeet }),
         };
         setApproachShots([...approachShots, newApproach]);
         setRemainingDistance(Math.max(0, remainingDistance - driveDistanceYards));
@@ -1487,6 +1453,30 @@ export default function App() {
       return next;
     });
   };
+
+  // Avg proximity to hole by approach distance bucket
+  const proximityByDistance = useMemo(() => {
+    const allShots: ApproachShot[] = [
+      ...rounds.flatMap(r => r.approachShots || []),
+      ...approachShots,
+    ].filter(s => s.proximityFeet !== undefined);
+
+    const buckets = [
+      { label: '200+ yds', min: 200, max: Infinity },
+      { label: 'Inside 200 yds', min: 150, max: 200 },
+      { label: 'Inside 150 yds', min: 100, max: 150 },
+      { label: 'Inside 100 yds', min: 50, max: 100 },
+      { label: 'Inside 50 yds', min: 0, max: 50 },
+    ];
+
+    return buckets.map(bucket => {
+      const shots = allShots.filter(s => s.distance >= bucket.min && s.distance < bucket.max);
+      const avgProximity = shots.length > 0
+        ? Math.round(shots.reduce((sum, s) => sum + s.proximityFeet!, 0) / shots.length)
+        : null;
+      return { label: bucket.label, count: shots.length, avgProximity };
+    });
+  }, [rounds, approachShots]);
 
   // Score Handlers
   const updateScore = (delta: number) => {
@@ -2290,6 +2280,7 @@ Requirements:
     setIsRoundActive(false);
     setIsTracking(false);
     setStartPos(null);
+    setApproachShots([]);
     autoAdvancedFrom.current.clear();
     autoFilledFairwayHoles.current.clear();
     setView('home');
@@ -2311,6 +2302,7 @@ Requirements:
       holeStats: { ...holeStats },
       slope: activeSlope || undefined,
       courseRating: activeCourseRating || undefined,
+      approachShots: approachShots.length > 0 ? [...approachShots] : undefined,
     };
 
     setRounds([newRound, ...rounds]);
@@ -3498,6 +3490,44 @@ Requirements:
                   </div>
                 );
               })()}
+
+              {/* Avg. Proximity to Hole by Approach Distance */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-bold text-stone-800">Avg. Proximity to Hole</h3>
+                {proximityByDistance.every(b => b.count === 0) ? (
+                  <div className="bg-white p-6 rounded-2xl text-center border border-dashed border-stone-200">
+                    <p className="text-stone-400 text-sm">No proximity data yet.</p>
+                    <p className="text-stone-300 text-xs mt-1">Requires GPS hole mapping to track where the ball lands.</p>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-2xl border border-stone-100 shadow-sm overflow-hidden">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="bg-stone-50 border-b border-stone-100">
+                          <th className="px-4 py-3 font-bold text-stone-400 uppercase text-[10px] tracking-widest">Distance</th>
+                          <th className="px-4 py-3 font-bold text-stone-400 uppercase text-[10px] tracking-widest text-center">Shots</th>
+                          <th className="px-4 py-3 font-bold text-stone-400 uppercase text-[10px] tracking-widest text-right">Avg. Proximity</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-50">
+                        {proximityByDistance.map(row => (
+                          <tr key={row.label} className={row.count === 0 ? 'opacity-40' : ''}>
+                            <td className="px-4 py-3 font-medium text-stone-700">{row.label}</td>
+                            <td className="px-4 py-3 text-center font-medium text-stone-500">{row.count}</td>
+                            <td className={`px-4 py-3 text-right font-bold ${
+                              row.avgProximity === null ? 'text-stone-300' :
+                              row.avgProximity <= 10 ? 'text-emerald-600' :
+                              row.avgProximity <= 20 ? 'text-amber-600' : 'text-red-500'
+                            }`}>
+                              {row.avgProximity !== null ? `${row.avgProximity} ft` : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
 
               {/* Round History Table */}
               <div className="space-y-4">
