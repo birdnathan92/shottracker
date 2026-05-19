@@ -1605,7 +1605,7 @@ export default function App() {
   };
 
   const changeHole = (delta: number) => {
-    const nextHole = Math.max(1, Math.min(18, currentHole + delta));
+    const nextHole = ((currentHole - 1 + delta + 18) % 18) + 1;
 
     // Save current club selections to the current hole before navigating
     const currentTeeClubName = bag.find(c => c.id === selectedClubId)?.name;
