@@ -99,6 +99,7 @@ interface HoleStats {
   approachClub?: string;     // club name used for approach
   layUp?: boolean | null;    // par 5 only: did the player lay up?
   proximityToHole?: 6 | 15 | 20 | 99 | null; // feet from hole after GIR (99 = 20'+)
+  approachDistanceYards?: number;            // "to green" distance for the approach (GPS or slider)
 }
 
 interface CourseHole {
@@ -235,7 +236,6 @@ interface Round {
   holeStats: Record<number, HoleStats>;
   slope?: number;
   courseRating?: number;
-  approachShots?: ApproachShot[];
 }
 
 // Tee box colors for UI
@@ -274,7 +274,6 @@ interface ApproachShot {
   distance: number;
   club: string;
   timestamp: number;
-  proximityFeet?: number; // feet to middle of green at ball position, when GPS mapping data is available
 }
 
 // Swipeable drive card component — swipe reveals delete button, must tap to confirm
@@ -378,6 +377,9 @@ export default function App() {
 
   // Editing tee boxes for manual course entry
   const [editingTeeBoxes, setEditingTeeBoxes] = useState<{ name: string; color: string; slope: number; courseRating: number; distances: number[] }[]>([]);
+
+  // Auto-start toast notification
+  const [autoStartToast, setAutoStartToast] = useState(false);
 
   // Mapping mode state
   const [isMappingModeOpen, setIsMappingModeOpen] = useState(false);
@@ -639,6 +641,7 @@ export default function App() {
   const nearTeeCount = React.useRef(0);
   const teeEntryTime = React.useRef<number | null>(null);   // when user first entered tee geofence
   const teeAutoStartFired = React.useRef(false);            // prevent repeated triggers per visit
+  const teeAnchorPos = React.useRef<Position | null>(null); // anchor for unmapped-course loiter detection
   const lastMovedPos = React.useRef<Position | null>(null);
   const lastMovedTime = React.useRef<number>(Date.now());
   const autoStopTriggered = React.useRef(false);
@@ -660,13 +663,12 @@ export default function App() {
   useEffect(() => {
     if (!isRoundActive || !currentPos || !courseName) return;
 
-    // Find the active course with mapping data
     const baseCourseName = courseName.replace(/\s*\(.*\)$/, '');
     const course = courses.find(c => c.name === baseCourseName || c.name === courseName);
-    if (!course?.holeMapping) return;
 
-    const TEE_GEOFENCE_METERS = 10;     // 10 meters
-    const LOITER_SECONDS = 5;            // seconds inside geofence before auto-start
+    const TEE_GEOFENCE_METERS = 10;       // mapped courses: distance to mapped tee box
+    const STATIONARY_RADIUS_METERS = 8;   // unmapped courses: movement under this = "standing still"
+    const LOITER_SECONDS = 5;             // seconds standing at the tee before auto-start
     const NEXT_HOLE_GEOFENCE_METERS = 10;
     const NEXT_HOLE_LOITER_THRESHOLD = 3; // GPS updates (next-hole advance stays count-based)
 
@@ -674,85 +676,124 @@ export default function App() {
     const teeBoxMatch = courseName.match(/\(([^)]+)\)$/);
     const selectedTeeBoxName = teeBoxMatch ? teeBoxMatch[1] : null;
     const selectedTeeColor = selectedTeeBoxName
-      ? course.teeBoxes?.find(tb => tb.name === selectedTeeBoxName)?.color || null
+      ? course?.teeBoxes?.find(tb => tb.name === selectedTeeBoxName)?.color || null
       : null;
 
-    // --- 7-yard geofence around the selected tee box only (time-based loiter) ---
-    const currentMapping = course.holeMapping[currentHole - 1];
-    if (currentMapping && !isTracking) {
-      let insideGeofence = false;
-      for (const feature of currentMapping.features) {
-        if (feature.type !== 'tee_box' || !feature.coordinates) continue;
-        // Only activate for the tee box the user selected at round start; skip all others
-        if (!selectedTeeColor || feature.teeBoxColor !== selectedTeeColor) continue;
-        const dist = haversineDistance(
-          currentPos.lat, currentPos.lng,
-          feature.coordinates.lat, feature.coordinates.lng
-        );
-        if (dist <= TEE_GEOFENCE_METERS) {
-          insideGeofence = true;
+    // --- AUTO-START TEE SHOT ---
+    // Fires when the golfer is set up at the tee. Works on ANY course:
+    //  • Mapped course: requires being inside the mapped tee box geofence.
+    //  • Unmapped course: detects the golfer standing still at the start of
+    //    a hole (no tee shot recorded yet) for LOITER_SECONDS.
+    if (!isTracking) {
+      const stats = holeStats[currentHole];
+      const teeShotRecorded = (stats?.driveDistance ?? 0) > 0;
+      const readyToTeeOff = !teeShotRecorded && lastDriveDistance === null;
+
+      // Look for a mapped tee box for this hole matching the selected color
+      let mappedTee: { lat: number; lng: number } | null = null;
+      const currentMapping = course?.holeMapping?.[currentHole - 1];
+      if (currentMapping) {
+        for (const feature of currentMapping.features) {
+          if (feature.type !== 'tee_box' || !feature.coordinates) continue;
+          if (selectedTeeColor && feature.teeBoxColor !== selectedTeeColor) continue;
+          mappedTee = feature.coordinates;
           break;
         }
       }
 
-      if (insideGeofence) {
-        // Record when user first entered the geofence
-        if (teeEntryTime.current === null) {
-          teeEntryTime.current = Date.now();
+      if (readyToTeeOff) {
+        let atTee: boolean;
+        if (mappedTee) {
+          atTee = haversineDistance(
+            currentPos.lat, currentPos.lng, mappedTee.lat, mappedTee.lng
+          ) <= TEE_GEOFENCE_METERS;
+          teeAnchorPos.current = null;
+        } else {
+          // Unmapped: anchor on the first reading; stay "at tee" while the
+          // golfer remains within a small radius. Moving away re-anchors and
+          // restarts the dwell timer (so it won't fire while walking).
+          if (teeAnchorPos.current === null) {
+            teeAnchorPos.current = currentPos;
+            atTee = true;
+          } else {
+            const moved = haversineDistance(
+              currentPos.lat, currentPos.lng,
+              teeAnchorPos.current.lat, teeAnchorPos.current.lng
+            );
+            if (moved <= STATIONARY_RADIUS_METERS) {
+              atTee = true;
+            } else {
+              teeAnchorPos.current = currentPos;
+              teeEntryTime.current = null;
+              atTee = false;
+            }
+          }
+        }
+
+        if (atTee) {
+          if (teeEntryTime.current === null) {
+            teeEntryTime.current = Date.now();
+            teeAutoStartFired.current = false;
+          }
+          const dwellMs = Date.now() - teeEntryTime.current;
+          if (dwellMs >= LOITER_SECONDS * 1000 && !teeAutoStartFired.current) {
+            teeAutoStartFired.current = true;
+            handleStartDrive();
+            setAutoStartToast(true);
+            setTimeout(() => setAutoStartToast(false), 3000);
+          }
+        } else {
+          teeEntryTime.current = null;
           teeAutoStartFired.current = false;
         }
-        // Fire once loiter threshold is reached
-        const dwellMs = Date.now() - teeEntryTime.current;
-        const prevHoleComplete = currentHole === 1 || isHoleComplete(currentHole - 1);
-        if (dwellMs >= LOITER_SECONDS * 1000 && prevHoleComplete && !teeAutoStartFired.current) {
-          teeAutoStartFired.current = true;
-          handleStartDrive();
-        }
       } else {
-        // User left the geofence — reset so re-entry starts a fresh timer
+        // Tee shot already taken on this hole — stand down until next hole
         teeEntryTime.current = null;
         teeAutoStartFired.current = false;
+        teeAnchorPos.current = null;
       }
     }
 
-    // --- Proximity to next hole's tee box (auto-advance hole, count-based) ---
-    let closestHole: number | null = null;
-    let closestDist = Infinity;
+    // --- Proximity to next hole's tee box (auto-advance hole) — needs mapping ---
+    if (course?.holeMapping) {
+      let closestHole: number | null = null;
+      let closestDist = Infinity;
 
-    for (let holeIdx = 0; holeIdx < course.holeMapping.length; holeIdx++) {
-      const holeNum = holeIdx + 1;
-      if (holeNum <= currentHole) continue;
+      for (let holeIdx = 0; holeIdx < course.holeMapping.length; holeIdx++) {
+        const holeNum = holeIdx + 1;
+        if (holeNum <= currentHole) continue;
 
-      const mapping = course.holeMapping[holeIdx];
-      for (const feature of mapping.features) {
-        if (feature.type !== 'tee_box' || !feature.coordinates) continue;
-        const dist = haversineDistance(
-          currentPos.lat, currentPos.lng,
-          feature.coordinates.lat, feature.coordinates.lng
-        );
-        if (dist <= NEXT_HOLE_GEOFENCE_METERS && dist < closestDist) {
-          closestDist = dist;
-          closestHole = holeNum;
+        const mapping = course.holeMapping[holeIdx];
+        for (const feature of mapping.features) {
+          if (feature.type !== 'tee_box' || !feature.coordinates) continue;
+          const dist = haversineDistance(
+            currentPos.lat, currentPos.lng,
+            feature.coordinates.lat, feature.coordinates.lng
+          );
+          if (dist <= NEXT_HOLE_GEOFENCE_METERS && dist < closestDist) {
+            closestDist = dist;
+            closestHole = holeNum;
+          }
         }
       }
-    }
 
-    if (
-      closestHole &&
-      closestHole === currentHole + 1 &&
-      isHoleComplete(currentHole) &&
-      !autoAdvancedFrom.current.has(currentHole)
-    ) {
-      nearTeeCount.current++;
-      if (nearTeeCount.current >= NEXT_HOLE_LOITER_THRESHOLD) {
-        autoAdvancedFrom.current.add(currentHole);
-        changeHole(closestHole - currentHole);
+      if (
+        closestHole &&
+        closestHole === currentHole + 1 &&
+        isHoleComplete(currentHole) &&
+        !autoAdvancedFrom.current.has(currentHole)
+      ) {
+        nearTeeCount.current++;
+        if (nearTeeCount.current >= NEXT_HOLE_LOITER_THRESHOLD) {
+          autoAdvancedFrom.current.add(currentHole);
+          changeHole(closestHole - currentHole);
+          nearTeeCount.current = 0;
+        }
+      } else {
         nearTeeCount.current = 0;
       }
-    } else {
-      nearTeeCount.current = 0;
     }
-  }, [currentPos, isRoundActive, courseName, currentHole, courses, isTracking, holeStats]);
+  }, [currentPos, isRoundActive, courseName, currentHole, courses, isTracking, holeStats, lastDriveDistance]);
 
   // --- AUTO-STOP TEE SHOT: loitering 30s near typical club distance ---
   useEffect(() => {
@@ -933,28 +974,11 @@ export default function App() {
       if (holeDistanceYards && remainingDistance && remainingDistance > 0 && driveDistanceYards < remainingDistance) {
         // This is an approach shot — remaining distance was already set in yards
         const approachClub = bag.find(c => c.id === selectedApproachClubId)?.name || 'Unknown';
-
-        // Proximity to middle of green in feet, when hole has GPS mapping data
-        let proximityFeet: number | undefined;
-        const baseCourseName = courseName.replace(/\s*\(.*\)$/, '');
-        const activeCourse = courses.find(c => c.name === baseCourseName || c.name === courseName);
-        const middleGreenCoord = activeCourse?.holeMapping?.[currentHole - 1]?.features.find(
-          f => f.type === 'green' && f.name === 'Middle of Green'
-        )?.coordinates;
-        if (middleGreenCoord) {
-          const distMeters = haversineDistance(
-            currentPos.lat, currentPos.lng,
-            middleGreenCoord.lat, middleGreenCoord.lng
-          );
-          proximityFeet = Math.round(distMeters * 3.28084);
-        }
-
         const newApproach: ApproachShot = {
           holeNumber: currentHole,
           distance: driveDistanceYards, // store in yards for consistency
           club: approachClub,
           timestamp: Date.now(),
-          ...(proximityFeet !== undefined && { proximityFeet }),
         };
         setApproachShots([...approachShots, newApproach]);
         setRemainingDistance(Math.max(0, remainingDistance - driveDistanceYards));
@@ -1454,12 +1478,23 @@ export default function App() {
     });
   };
 
-  // Avg proximity to hole by approach distance bucket
+  // Avg proximity to hole (from user-selected GIR proximity buttons),
+  // grouped by the approach "to green" distance for that hole.
   const proximityByDistance = useMemo(() => {
-    const allShots: ApproachShot[] = [
-      ...rounds.flatMap(r => r.approachShots || []),
-      ...approachShots,
-    ].filter(s => s.proximityFeet !== undefined);
+    // 20'+ is recorded as 99; treat it as a representative 25 ft for averaging
+    const proxToFeet = (p: 6 | 15 | 20 | 99) => (p === 99 ? 25 : p);
+
+    const entries: { distance: number; feet: number }[] = [];
+    const collect = (statsMap: Record<number, HoleStats> | undefined) => {
+      if (!statsMap) return;
+      for (const s of Object.values(statsMap)) {
+        if (!s || !s.proximityToHole) continue;
+        if (s.approachDistanceYards === undefined || s.approachDistanceYards <= 0) continue;
+        entries.push({ distance: s.approachDistanceYards, feet: proxToFeet(s.proximityToHole) });
+      }
+    };
+    for (const r of rounds) collect(r.holeStats);
+    collect(holeStats);
 
     const buckets = [
       { label: '200+ yds', min: 200, max: Infinity },
@@ -1470,13 +1505,13 @@ export default function App() {
     ];
 
     return buckets.map(bucket => {
-      const shots = allShots.filter(s => s.distance >= bucket.min && s.distance < bucket.max);
-      const avgProximity = shots.length > 0
-        ? Math.round(shots.reduce((sum, s) => sum + s.proximityFeet!, 0) / shots.length)
+      const inBucket = entries.filter(e => e.distance >= bucket.min && e.distance < bucket.max);
+      const avgProximity = inBucket.length > 0
+        ? Math.round(inBucket.reduce((sum, e) => sum + e.feet, 0) / inBucket.length)
         : null;
-      return { label: bucket.label, count: shots.length, avgProximity };
+      return { label: bucket.label, count: inBucket.length, avgProximity };
     });
-  }, [rounds, approachShots]);
+  }, [rounds, holeStats]);
 
   // Score Handlers
   const updateScore = (delta: number) => {
@@ -1656,6 +1691,19 @@ export default function App() {
       }
     }
   }, [remainingDistance, isTracking, bag]);
+
+  // Persist the "to green" distance for the current hole so the
+  // Avg. Proximity to Hole stat can bucket by approach distance.
+  useEffect(() => {
+    if (!isRoundActive) return;
+    if (remainingDistance === null || remainingDistance <= 0) return;
+    const rounded = Math.round(remainingDistance);
+    setHoleStats(prev => {
+      if (prev[currentHole]?.approachDistanceYards === rounded) return prev;
+      const current = prev[currentHole] || { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 };
+      return { ...prev, [currentHole]: { ...current, approachDistanceYards: rounded } };
+    });
+  }, [remainingDistance, currentHole, isRoundActive]);
 
   const importCoursePars = async () => {
     if (!courseSearch.trim()) return;
@@ -2302,7 +2350,6 @@ Requirements:
       holeStats: { ...holeStats },
       slope: activeSlope || undefined,
       courseRating: activeCourseRating || undefined,
-      approachShots: approachShots.length > 0 ? [...approachShots] : undefined,
     };
 
     setRounds([newRound, ...rounds]);
@@ -2898,32 +2945,33 @@ Requirements:
                           ))}
                         </motion.div>
                       )}
-                      {currentHoleData.gir === true && (
-                        <motion.div
-                          initial={{ opacity: 0, width: 0 }}
-                          animate={{ opacity: 1, width: 'auto' }}
-                          exit={{ opacity: 0, width: 0 }}
-                          className="flex items-center gap-1 overflow-hidden"
-                        >
-                          {([6, 15, 20, 99] as const).map(prox => (
-                            <button
-                              key={prox}
-                              onClick={() => setHoleStats(prev => ({
-                                ...prev,
-                                [currentHole]: { ...prev[currentHole], proximityToHole: currentHoleData.proximityToHole === prox ? null : prox }
-                              }))}
-                              className={`h-8 px-2 rounded-full flex items-center justify-center transition-all border text-[10px] font-bold ${
-                                currentHoleData.proximityToHole === prox
-                                  ? 'bg-emerald-500 border-emerald-500 text-white'
-                                  : 'bg-white border-stone-200 text-stone-500 hover:border-emerald-300'
-                              }`}
-                            >
-                              {prox === 99 ? "20'+" : `${prox}'`}
-                            </button>
-                          ))}
-                        </motion.div>
-                      )}
                     </AnimatePresence>
+                  </div>
+                </div>
+
+                {/* Proximity to Hole Row — always visible */}
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="font-bold text-stone-700 text-sm">Proximity</span>
+                  <div className="flex items-center gap-1.5">
+                    {([6, 15, 20, 99] as const).map(prox => (
+                      <button
+                        key={prox}
+                        onClick={() => setHoleStats(prev => {
+                          const cur = prev[currentHole] || { score: 4, putts: 2, fairway: null, gir: null, upAndDown: null, sandSave: null, teeAccuracy: null, approachAccuracy: null, par: 4 };
+                          return {
+                            ...prev,
+                            [currentHole]: { ...cur, proximityToHole: cur.proximityToHole === prox ? null : prox }
+                          };
+                        })}
+                        className={`h-9 px-3 rounded-full flex items-center justify-center transition-all border-2 text-xs font-bold ${
+                          currentHoleData.proximityToHole === prox
+                            ? 'bg-emerald-500 border-emerald-500 text-white'
+                            : 'bg-stone-100 border-stone-300 text-stone-400 hover:border-emerald-300'
+                        }`}
+                      >
+                        {prox === 99 ? "20'+" : `${prox}'`}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -3164,6 +3212,17 @@ Requirements:
                         <Minus size={16} />
                         Set Approach Distance
                       </button>
+                    )}
+                    {autoStartToast && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-semibold px-3 py-2 rounded-xl"
+                      >
+                        <Target size={15} />
+                        Tracking started — teeing off
+                      </motion.div>
                     )}
                     <div className="flex gap-2">
                       <button
@@ -3497,7 +3556,7 @@ Requirements:
                 {proximityByDistance.every(b => b.count === 0) ? (
                   <div className="bg-white p-6 rounded-2xl text-center border border-dashed border-stone-200">
                     <p className="text-stone-400 text-sm">No proximity data yet.</p>
-                    <p className="text-stone-300 text-xs mt-1">Requires GPS hole mapping to track where the ball lands.</p>
+                    <p className="text-stone-300 text-xs mt-1">Tap a Proximity button (6'/15'/20'/20'+) each hole, with a "to green" distance set.</p>
                   </div>
                 ) : (
                   <div className="bg-white rounded-2xl border border-stone-100 shadow-sm overflow-hidden">
