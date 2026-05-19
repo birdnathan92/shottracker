@@ -2507,6 +2507,29 @@ Requirements:
                     {item.label}
                   </button>
                 ))}
+                {isRoundActive && courseName && (
+                  <div className="pt-3 border-t border-stone-100 space-y-1">
+                    <button
+                      onClick={() => {
+                        setIsSideMenuOpen(false);
+                        if (confirm('End round and post score?')) {
+                          endRound();
+                        }
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium bg-stone-800 text-white"
+                    >
+                      <CheckCircle2 size={20} />
+                      End Round & Post Score
+                    </button>
+                    <button
+                      onClick={() => { setIsSideMenuOpen(false); cancelRound(); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-red-500 hover:bg-red-50"
+                    >
+                      <Trash2 size={20} />
+                      Delete Round
+                    </button>
+                  </div>
+                )}
               </nav>
             </motion.div>
           </>
@@ -2771,28 +2794,28 @@ Requirements:
               {/* Scorecard */}
               <div className="bg-white rounded-2xl shadow-sm border border-stone-100 divide-y divide-stone-50">
                 {/* Strokes + Putts Row */}
-                <div className="flex items-center px-4 py-2 gap-3">
+                <div className="flex items-center px-4 py-3 gap-3">
                   <div className="flex-1 flex items-center justify-between">
-                    <span className="font-bold text-stone-700 text-xs">Strokes</span>
+                    <span className="font-bold text-stone-700 text-sm">Strokes</span>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => updateScore(-1)} className="w-8 h-8 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
+                      <button onClick={() => updateScore(-1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
                         <Minus size={14} />
                       </button>
-                      <p className="text-lg font-black text-stone-800 w-6 text-center">{currentHoleData.score}</p>
-                      <button onClick={() => updateScore(1)} className="w-8 h-8 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
+                      <p className="text-xl font-black text-stone-800 w-7 text-center">{currentHoleData.score}</p>
+                      <button onClick={() => updateScore(1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
                         <Plus size={14} />
                       </button>
                     </div>
                   </div>
                   <div className="w-px h-6 bg-stone-200" />
                   <div className="flex-1 flex items-center justify-between">
-                    <span className="font-bold text-stone-700 text-xs">Putts</span>
+                    <span className="font-bold text-stone-700 text-sm">Putts</span>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => updatePutts(-1)} className="w-8 h-8 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
+                      <button onClick={() => updatePutts(-1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
                         <Minus size={14} />
                       </button>
-                      <p className="text-lg font-black text-stone-800 w-6 text-center">{currentHoleData.putts}</p>
-                      <button onClick={() => updatePutts(1)} className="w-8 h-8 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
+                      <p className="text-xl font-black text-stone-800 w-7 text-center">{currentHoleData.putts}</p>
+                      <button onClick={() => updatePutts(1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
                         <Plus size={14} />
                       </button>
                     </div>
@@ -2800,14 +2823,14 @@ Requirements:
                 </div>
 
                 {/* Club Selection Row - Tee + Approach side by side */}
-                <div className="flex items-center px-4 py-2 gap-3">
+                <div className="flex items-center px-4 py-3 gap-3">
                   <div className="flex-1 flex items-center justify-between">
-                    <span className="font-bold text-stone-700 text-xs">Tee</span>
+                    <span className="font-bold text-stone-700 text-sm">Tee</span>
                     <div className="relative">
                       <select
                         value={selectedClubId}
                         onChange={(e) => setSelectedClubId(e.target.value)}
-                        className="bg-stone-50 border border-stone-100 rounded-lg pl-2.5 pr-6 py-1.5 font-bold text-stone-600 appearance-none outline-none text-xs max-w-[108px]"
+                        className="bg-stone-50 border border-stone-100 rounded-lg pl-2.5 pr-6 py-1.5 font-bold text-stone-600 appearance-none outline-none text-sm max-w-[116px]"
                       >
                         <option disabled value="">Select</option>
                         {bag.map(club => (
@@ -2823,7 +2846,7 @@ Requirements:
                     <>
                       <div className="w-px h-6 bg-stone-200" />
                       <div className="flex-1 flex items-center justify-between">
-                        <span className="font-bold text-stone-700 text-xs">Appr.</span>
+                        <span className="font-bold text-stone-700 text-sm">Appr.</span>
                         <div className="relative">
                           <select
                             value={selectedApproachClubId}
@@ -2838,7 +2861,7 @@ Requirements:
                                 }
                               }));
                             }}
-                            className="bg-blue-50 border border-blue-100 rounded-lg pl-2.5 pr-6 py-1.5 font-bold text-blue-600 appearance-none outline-none text-xs max-w-[108px]"
+                            className="bg-blue-50 border border-blue-100 rounded-lg pl-2.5 pr-6 py-1.5 font-bold text-blue-600 appearance-none outline-none text-sm max-w-[116px]"
                           >
                             <option disabled value="">Select</option>
                             {bag.map(club => (
@@ -2856,13 +2879,13 @@ Requirements:
 
                 {/* Fairway + GIR Row */}
                 {currentHoleData.par > 3 ? (
-                  <div className="flex items-center px-4 py-2 gap-3">
+                  <div className="flex items-center px-4 py-3 gap-3">
                     <div className="flex-1 flex items-center justify-between">
-                      <span className="font-bold text-stone-700 text-xs">Fairway</span>
+                      <span className="font-bold text-stone-700 text-sm">Fairway</span>
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => setStatDirectly('fairway', true)}
-                          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                          className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
                             currentHoleData.fairway === true
                               ? 'bg-emerald-500 border-emerald-500 text-white'
                               : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -2872,7 +2895,7 @@ Requirements:
                         </button>
                         <button
                           onClick={() => setStatDirectly('fairway', false)}
-                          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                          className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
                             currentHoleData.fairway === false
                               ? 'bg-stone-400 border-stone-400 text-white'
                               : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -2884,11 +2907,11 @@ Requirements:
                     </div>
                     <div className="w-px h-6 bg-stone-200" />
                     <div className="flex-1 flex items-center justify-between">
-                      <span className="font-bold text-stone-700 text-xs">GIR</span>
+                      <span className="font-bold text-stone-700 text-sm">GIR</span>
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => setStatDirectly('gir', true)}
-                          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                          className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
                             currentHoleData.gir === true
                               ? 'bg-emerald-500 border-emerald-500 text-white'
                               : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -2898,7 +2921,7 @@ Requirements:
                         </button>
                         <button
                           onClick={() => setStatDirectly('gir', false)}
-                          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                          className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
                             currentHoleData.gir === false
                               ? 'bg-stone-400 border-stone-400 text-white'
                               : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -2910,12 +2933,12 @@ Requirements:
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between px-4 py-2">
-                    <span className="font-bold text-stone-700 text-xs">GIR</span>
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <span className="font-bold text-stone-700 text-sm">GIR</span>
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setStatDirectly('gir', true)}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.gir === true
                             ? 'bg-emerald-500 border-emerald-500 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -2925,7 +2948,7 @@ Requirements:
                       </button>
                       <button
                         onClick={() => setStatDirectly('gir', false)}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.gir === false
                             ? 'bg-stone-400 border-stone-400 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -2946,7 +2969,7 @@ Requirements:
                       exit={{ opacity: 0, height: 0 }}
                       className="overflow-hidden"
                     >
-                      <div className="px-4 py-2 space-y-1.5">
+                      <div className="px-4 py-3 space-y-2">
                         {currentHoleData.par > 3 && currentHoleData.fairway === false && (
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wide">Tee Miss</span>
@@ -2955,7 +2978,7 @@ Requirements:
                                 <button
                                   key={dir}
                                   onClick={() => setTeeAccuracy(dir)}
-                                  className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border ${
+                                  className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border ${
                                     currentHoleData.teeAccuracy === dir
                                       ? 'bg-amber-500 border-amber-500 text-white'
                                       : 'bg-white border-stone-200 text-stone-400 hover:border-amber-300'
@@ -2979,7 +3002,7 @@ Requirements:
                                 <button
                                   key={dir}
                                   onClick={() => setApproachAccuracy(dir)}
-                                  className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border ${
+                                  className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border ${
                                     currentHoleData.approachAccuracy === dir
                                       ? 'bg-amber-500 border-amber-500 text-white'
                                       : 'bg-white border-stone-200 text-stone-400 hover:border-amber-300'
@@ -3001,8 +3024,8 @@ Requirements:
                 </AnimatePresence>
 
                 {/* Proximity to Hole Row — always visible */}
-                <div className="flex items-center justify-between px-4 py-2">
-                  <span className="font-bold text-stone-700 text-xs">Proximity</span>
+                <div className="flex items-center justify-between px-4 py-3">
+                  <span className="font-bold text-stone-700 text-sm">Proximity</span>
                   <div className="flex items-center gap-1.5">
                     {([6, 15, 20, 99] as const).map(prox => (
                       <button
@@ -3014,7 +3037,7 @@ Requirements:
                             [currentHole]: { ...cur, proximityToHole: cur.proximityToHole === prox ? null : prox }
                           };
                         })}
-                        className={`h-8 px-3 rounded-full flex items-center justify-center transition-all border-2 text-xs font-bold ${
+                        className={`h-9 px-3 rounded-full flex items-center justify-center transition-all border-2 text-xs font-bold ${
                           currentHoleData.proximityToHole === prox
                             ? 'bg-emerald-500 border-emerald-500 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400 hover:border-emerald-300'
@@ -3028,12 +3051,12 @@ Requirements:
 
                 {/* Lay Up Row - Par 5 only */}
                 {currentHoleData.par === 5 && (
-                  <div className="flex items-center justify-between px-4 py-2">
-                    <span className="font-bold text-stone-700 text-xs">Lay Up</span>
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <span className="font-bold text-stone-700 text-sm">Lay Up</span>
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setStatDirectly('layUp', true)}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.layUp === true
                             ? 'bg-emerald-500 border-emerald-500 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -3043,7 +3066,7 @@ Requirements:
                       </button>
                       <button
                         onClick={() => setStatDirectly('layUp', false)}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.layUp === false
                             ? 'bg-stone-400 border-stone-400 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -3056,13 +3079,13 @@ Requirements:
                 )}
 
                 {/* Sand Save + Up & Down Row */}
-                <div className="flex items-center px-4 py-2 gap-4">
+                <div className="flex items-center px-4 py-3 gap-4">
                   <div className="flex-1 flex items-center justify-between">
-                    <span className="font-bold text-stone-700 text-xs">Sand Save</span>
+                    <span className="font-bold text-stone-700 text-sm">Sand Save</span>
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setStatDirectly('sandSave', true)}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.sandSave === true
                             ? 'bg-emerald-500 border-emerald-500 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -3072,7 +3095,7 @@ Requirements:
                       </button>
                       <button
                         onClick={() => setStatDirectly('sandSave', false)}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.sandSave === false
                             ? 'bg-stone-400 border-stone-400 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -3084,11 +3107,11 @@ Requirements:
                   </div>
                   <div className="w-px h-6 bg-stone-200" />
                   <div className="flex-1 flex items-center justify-between">
-                    <span className="font-bold text-stone-700 text-xs">Up & Down</span>
+                    <span className="font-bold text-stone-700 text-sm">Up & Down</span>
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setStatDirectly('upAndDown', true)}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.upAndDown === true
                             ? 'bg-emerald-500 border-emerald-500 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -3098,7 +3121,7 @@ Requirements:
                       </button>
                       <button
                         onClick={() => setStatDirectly('upAndDown', false)}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
+                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.upAndDown === false
                             ? 'bg-stone-400 border-stone-400 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -3388,8 +3411,8 @@ Requirements:
               })()}
 
 
-              {/* End Round / Cancel Round */}
-              {courseName && (
+              {/* End Round / Cancel Round — only on hole 18 */}
+              {courseName && currentHole === 18 && (
                 <div className="flex gap-2">
                   <button
                     onClick={() => {
