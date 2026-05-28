@@ -1992,6 +1992,23 @@ Requirements:
     setTimeout(() => setMappingGpsStatus(''), 2000);
   };
 
+  // Format a decimal lat/lng pair back into the DMS string our parser accepts,
+  // e.g. {lat:49.2320, lng:-123.2076} -> '49°13\'55.16"N 123°12\'27.76"W'.
+  // Used to pre-populate the "Edit Manual" input so the user can see and tweak
+  // the existing coordinates instead of having to re-type them from scratch.
+  const decimalToDms = (coords: { lat: number; lng: number }): string => {
+    const fmt = (decimal: number, posChar: string, negChar: string) => {
+      const hemi = decimal >= 0 ? posChar : negChar;
+      const abs = Math.abs(decimal);
+      const deg = Math.floor(abs);
+      const minFloat = (abs - deg) * 60;
+      const min = Math.floor(minFloat);
+      const sec = (minFloat - min) * 60;
+      return `${deg}°${min}'${sec.toFixed(2)}"${hemi}`;
+    };
+    return `${fmt(coords.lat, 'N', 'S')} ${fmt(coords.lng, 'E', 'W')}`;
+  };
+
   const parseDmsCoordinates = (input: string): { lat: number; lng: number } | null => {
     // Parse DMS format like: 49°13'55.16"N 123°12'27.76"W
     const dmsRegex = /(\d+)[°]\s*(\d+)[''′]\s*([\d.]+)[""″]?\s*([NSns])\s+(\d+)[°]\s*(\d+)[''′]\s*([\d.]+)[""″]?\s*([EWew])/;
@@ -4382,7 +4399,7 @@ Requirements:
                                         setManualCoordFeatureId(null);
                                       } else {
                                         setManualCoordFeatureId(feature.id);
-                                        setManualDmsInput('');
+                                        setManualDmsInput(feature.coordinates ? decimalToDms(feature.coordinates) : '');
                                       }
                                     }}
                                     className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200 transition-colors flex items-center justify-center gap-1"
@@ -4456,7 +4473,7 @@ Requirements:
                                     setManualCoordFeatureId(null);
                                   } else {
                                     setManualCoordFeatureId(feature.id);
-                                    setManualDmsInput('');
+                                    setManualDmsInput(feature.coordinates ? decimalToDms(feature.coordinates) : '');
                                   }
                                 }}
                                 className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200 transition-colors flex items-center justify-center gap-1"
@@ -4511,7 +4528,7 @@ Requirements:
                                       setManualCoordFeatureId(null);
                                     } else {
                                       setManualCoordFeatureId(feature.id);
-                                      setManualDmsInput('');
+                                      setManualDmsInput(feature.coordinates ? decimalToDms(feature.coordinates) : '');
                                     }
                                   }}
                                   className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200 transition-colors flex items-center justify-center gap-1"
@@ -4570,7 +4587,7 @@ Requirements:
                                     setManualCoordFeatureId(null);
                                   } else {
                                     setManualCoordFeatureId(feature.id);
-                                    setManualDmsInput('');
+                                    setManualDmsInput(feature.coordinates ? decimalToDms(feature.coordinates) : '');
                                   }
                                 }}
                                 className="flex-1 text-[11px] font-bold py-1.5 rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200 transition-colors flex items-center justify-center gap-1"
