@@ -2011,8 +2011,23 @@ Requirements:
 
   const parseDmsCoordinates = (input: string): { lat: number; lng: number } | null => {
     // Parse DMS format like: 49°13'55.16"N 123°12'27.76"W
-    const dmsRegex = /(\d+)[°]\s*(\d+)[''′]\s*([\d.]+)[""″]?\s*([NSns])\s+(\d+)[°]\s*(\d+)[''′]\s*([\d.]+)[""″]?\s*([EWew])/;
-    const match = input.trim().match(dmsRegex);
+    //
+    // The quote character classes accept:
+    //   single: ' (U+0027 straight)  ‘ (U+2018 left curly)  ’ (U+2019 right curly)  ′ (U+2032 prime)
+    //   double: " (U+0022 straight)  “ (U+201C left curly)  ” (U+201D right curly)  ″ (U+2033 double prime)
+    //
+    // iOS Safari's "Smart Punctuation" auto-replaces straight quotes with curly
+    // ones as the user types, so we must accept both. Without this the user
+    // types 49°13'55.16"N, iOS silently turns it into 49°13’55.16”N, and the
+    // regex fails — manifesting as "the green check mark doesn't save".
+    //
+    // Pre-normalize the input by collapsing all single-quote and double-quote
+    // variants to their straight forms, so the regex itself stays simple.
+    const normalized = input
+      .replace(/[‘’′]/g, "'")
+      .replace(/[“”″]/g, '"');
+    const dmsRegex = /(\d+)[°]\s*(\d+)['′]\s*([\d.]+)["″]?\s*([NSns])\s+(\d+)[°]\s*(\d+)['′]\s*([\d.]+)["″]?\s*([EWew])/;
+    const match = normalized.trim().match(dmsRegex);
     if (match) {
       const latDeg = parseFloat(match[1]) + parseFloat(match[2]) / 60 + parseFloat(match[3]) / 3600;
       const lngDeg = parseFloat(match[5]) + parseFloat(match[6]) / 60 + parseFloat(match[7]) / 3600;
