@@ -1,0 +1,9 @@
+{
+	"appId": "com.nathanbird.golfdrivetracker",
+	"appName": "Golf Drive Tracker",
+	"webDir": "dist",
+	"ios": {
+		"contentInset": "always"
+	},
+	"packageClassList": []
+}

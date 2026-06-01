@@ -2,9 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "name": "Golf Tracker Dev",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port=3000", "--host=0.0.0.0"],
+      "cwd": "C:\\Users\\NathanBird\\Downloads\\golf-drive-tracker",
       "port": 3000
     }
   ]

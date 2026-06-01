@@ -1,21 +1,41 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
+// Don't throw when the env vars are missing — that blanks the app at boot.
+// The app already checks isSupabaseAvailable() before calling supabaseDb
+// methods, and each method below returns a safe fallback when the client
+// isn't initialised. This lets the native iOS build run without Supabase
+// creds (e.g. during an initial CI build) while still behaving correctly
+// once creds are provided.
+const hasSupabaseCreds = Boolean(supabaseUrl && supabaseAnonKey);
+
+if (!hasSupabaseCreds) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    '[supabaseClient] VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY missing — running in local-only mode.',
+  );
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase: SupabaseClient = hasSupabaseCreds
+  ? createClient(supabaseUrl!, supabaseAnonKey!)
+  // Stub client: any call against it will reject at runtime, but importing
+  // this module will not throw. Callers should gate on isSupabaseAvailable().
+  : (new Proxy({}, {
+      get() {
+        throw new Error('Supabase is not configured — check VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY.');
+      },
+    }) as unknown as SupabaseClient);
 
 // Types for database operations
 export interface DbRound {
   id: string;
-  course_id: string;
-  date: string;
+  course_name: string;
+  date: number;
   total_score: number;
-  total_putts: number;
+  total_par: number;
+  hole_stats_data: string; // JSON string of hole stats
   created_at: string;
   updated_at: string;
 }
@@ -25,6 +45,8 @@ export interface DbCourse {
   name: string;
   location?: string;
   holes: DbCourseHole[];
+  teeBoxes?: { name: string; color: string; holes: DbCourseHole[]; slope?: number; courseRating?: number }[];
+  holeMapping?: any[];
   created_at: string;
   updated_at: string;
 }
@@ -67,17 +89,49 @@ export interface DbClub {
   name: string;
   avg_distance: number;
   created_at: string;
+  updated_at?: string;
+}
+
+export interface DbCourseDataPoint {
+  id: string;
+  course_name: string;
+  hole_number: number;
+  lat: number;
+  lng: number;
+  accuracy: number;
+  area_type: 'tee_box' | 'fairway' | 'rough' | 'green' | 'bunker' | 'fairway_bunker' | 'greenside_bunker';
+  shot_number?: number;
+  club?: string;
+  created_at?: string;
 }
 
 // Database operation functions
 export const supabaseDb = {
   // Rounds operations
   async saveRound(round: DbRound) {
+    console.log('[Supabase] Saving round:', { id: round.id, course_name: round.course_name, date: round.date, total_score: round.total_score });
+
+    // Don't send created_at/updated_at - let DB defaults handle them
+    const payload = {
+      id: round.id,
+      course_name: round.course_name,
+      date: round.date,  // BIGINT milliseconds
+      total_score: round.total_score,
+      total_par: round.total_par,
+      hole_stats_data: round.hole_stats_data,
+    };
+
     const { data, error } = await supabase
       .from('rounds')
-      .upsert(round, { onConflict: 'id' })
+      .upsert(payload, { onConflict: 'id' })
       .select();
-    if (error) throw error;
+
+    if (error) {
+      console.error('[Supabase] Round save error:', error);
+      throw error;
+    }
+
+    console.log('[Supabase] Round saved:', data);
     return data?.[0];
   },
 
@@ -100,13 +154,20 @@ export const supabaseDb = {
 
   // Courses operations
   async saveCourse(course: DbCourse) {
+    // Store holes, teeBoxes, and holeMapping in holes_data JSONB column
+    const holesDataObj: any = { holes: course.holes };
+    if (course.teeBoxes && course.teeBoxes.length > 0) holesDataObj.teeBoxes = course.teeBoxes;
+    if (course.holeMapping && course.holeMapping.length > 0) holesDataObj.holeMapping = course.holeMapping;
+    const holesData = Object.keys(holesDataObj).length === 1 && !holesDataObj.teeBoxes
+      ? JSON.stringify(course.holes)
+      : JSON.stringify(holesDataObj);
     const { data, error } = await supabase
       .from('courses')
       .upsert({
         id: course.id,
         name: course.name,
         location: course.location,
-        holes_data: JSON.stringify(course.holes),
+        holes_data: holesData,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'id' })
       .select();
@@ -120,10 +181,14 @@ export const supabaseDb = {
       .select('*')
       .order('name');
     if (error) throw error;
-    return (data || []).map((course: any) => ({
-      ...course,
-      holes: JSON.parse(course.holes_data || '[]'),
-    }));
+    return (data || []).map((course: any) => {
+      const parsed = JSON.parse(course.holes_data || '[]');
+      // Handle both formats: array of holes (old) or object with holes + teeBoxes (new)
+      if (Array.isArray(parsed)) {
+        return { ...course, holes: parsed };
+      }
+      return { ...course, holes: parsed.holes || [], teeBoxes: parsed.teeBoxes || undefined, holeMapping: parsed.holeMapping || undefined };
+    });
   },
 
   async deleteCourse(id: string) {
@@ -138,7 +203,7 @@ export const supabaseDb = {
   async saveDrive(drive: DbDrive) {
     const { data, error } = await supabase
       .from('drives')
-      .insert(drive)
+      .upsert(drive, { onConflict: 'id' })
       .select();
     if (error) throw error;
     return data?.[0];
@@ -152,6 +217,14 @@ export const supabaseDb = {
     const { data, error } = await query.order('timestamp', { ascending: false });
     if (error) throw error;
     return data || [];
+  },
+
+  async deleteDrive(id: string) {
+    const { error } = await supabase
+      .from('drives')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
   },
 
   // Hole stats operations
@@ -174,12 +247,21 @@ export const supabaseDb = {
   },
 
   // Clubs operations
-  async saveClub(club: DbClub) {
+  async saveClub(club: { name: string; avg_distance: number }) {
+    // Upsert: insert or update distance if club name already exists
     const { data, error } = await supabase
       .from('clubs')
-      .upsert(club, { onConflict: 'id' })
+      .upsert({
+        name: club.name,
+        avg_distance: club.avg_distance,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'name' })
       .select();
-    if (error) throw error;
+
+    if (error) {
+      console.error('[Supabase] saveClub error:', error);
+      throw error;
+    }
     return data?.[0];
   },
 
@@ -195,6 +277,73 @@ export const supabaseDb = {
   async deleteClub(id: string) {
     const { error } = await supabase
       .from('clubs')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+  },
+
+  // User Bag operations
+  async saveBag(bag: any[]) {
+    const { data, error } = await supabase
+      .from('user_bag')
+      .upsert({
+        id: '00000000-0000-0000-0000-000000000001', // singleton ID
+        bag_data: JSON.stringify(bag),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' })
+      .select();
+
+    if (error) {
+      console.error('[Supabase] saveBag error:', error);
+      throw error;
+    }
+    return data?.[0];
+  },
+
+  async getBag() {
+    const { data, error } = await supabase
+      .from('user_bag')
+      .select('bag_data')
+      .eq('id', '00000000-0000-0000-0000-000000000001')
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+      console.error('[Supabase] getBag error:', error);
+      throw error;
+    }
+
+    if (data?.bag_data) {
+      return typeof data.bag_data === 'string' ? JSON.parse(data.bag_data) : data.bag_data;
+    }
+    return null;
+  },
+
+  // Course Data Points operations (Mapping Mode collected coordinates)
+  async saveCourseDataPoint(point: DbCourseDataPoint) {
+    const { data, error } = await supabase
+      .from('course_data_points')
+      .insert(point)
+      .select();
+    if (error) {
+      console.error('[Supabase] saveCourseDataPoint error:', error);
+      throw error;
+    }
+    return data?.[0];
+  },
+
+  async getCourseDataPoints(courseName?: string) {
+    let query = supabase.from('course_data_points').select('*');
+    if (courseName) {
+      query = query.eq('course_name', courseName);
+    }
+    const { data, error } = await query.order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+
+  async deleteCourseDataPoint(id: string) {
+    const { error } = await supabase
+      .from('course_data_points')
       .delete()
       .eq('id', id);
     if (error) throw error;
