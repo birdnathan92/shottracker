@@ -2539,29 +2539,6 @@ Requirements:
                     {item.label}
                   </button>
                 ))}
-                {isRoundActive && courseName && (
-                  <div className="pt-3 border-t border-stone-100 space-y-1">
-                    <button
-                      onClick={() => {
-                        setIsSideMenuOpen(false);
-                        if (confirm('End round and post score?')) {
-                          endRound();
-                        }
-                      }}
-                      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium bg-stone-800 text-white"
-                    >
-                      <CheckCircle2 size={20} />
-                      End Round & Post Score
-                    </button>
-                    <button
-                      onClick={() => { setIsSideMenuOpen(false); cancelRound(); }}
-                      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-red-500 hover:bg-red-50"
-                    >
-                      <Trash2 size={20} />
-                      Delete Round
-                    </button>
-                  </div>
-                )}
               </nav>
             </motion.div>
           </>
@@ -2773,23 +2750,12 @@ Requirements:
               exit={{ opacity: 0, y: -10 }}
               className="space-y-2"
             >
-              {/* Hole Header - compact banner with inline navigation */}
-              <div className="flex items-center gap-2 leading-tight">
-                <button
-                  onClick={() => changeHole(-1)}
-                  className="w-9 h-9 shrink-0 flex items-center justify-center bg-rose-50 text-rose-400 rounded-lg border border-rose-100 active:scale-90 transition-transform"
-                  aria-label="Previous hole"
-                >
-                  <ChevronLeft size={18} />
-                </button>
-                <div className="flex-1 flex items-center justify-center gap-2 flex-wrap">
+              {/* Hole Header - compact single-line banner */}
+              <div className="flex items-center justify-center gap-2 leading-tight">
                 <span className="text-lg font-black text-stone-800">#{currentHole}</span>
                 <span className="text-[10px] font-bold text-stone-500 uppercase">Par {currentHoleData.par}</span>
                 <span className="text-stone-300">·</span>
                 <span className="text-[10px] font-bold text-stone-400">{Math.round(unit === 'yards' ? getCurrentHoleDistance() : getCurrentHoleDistance() * 0.9144)} {unit.toUpperCase()}</span>
-                {currentHoleData.score > 0 && (
-                  <span className={`text-[10px] font-bold uppercase ${scoreIndicator.color}`}>{scoreIndicator.label}</span>
-                )}
                 {(() => {
                   let totalScore = 0;
                   let totalPar = 0;
@@ -2813,250 +2779,210 @@ Requirements:
                     </span>
                   );
                 })()}
-                </div>
-                <button
-                  onClick={() => changeHole(1)}
-                  className="w-9 h-9 shrink-0 flex items-center justify-center bg-rose-50 text-rose-400 rounded-lg border border-rose-100 active:scale-90 transition-transform"
-                  aria-label="Next hole"
-                >
-                  <ChevronRight size={18} />
-                </button>
               </div>
 
               {/* Scorecard */}
               <div className="bg-white rounded-2xl shadow-sm border border-stone-100 divide-y divide-stone-50">
-                {/* Strokes + Putts Row */}
-                <div className="flex items-center px-4 py-3 gap-3">
-                  <div className="flex-1 flex items-center justify-between">
-                    <span className="font-bold text-stone-700 text-sm">Strokes</span>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => updateScore(-1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
-                        <Minus size={14} />
-                      </button>
-                      <p className="text-xl font-black text-stone-800 w-7 text-center">{currentHoleData.score}</p>
-                      <button onClick={() => updateScore(1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
-                        <Plus size={14} />
-                      </button>
+                {/* Total Strokes Row */}
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="font-bold text-stone-700 text-sm">Total Strokes</span>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => updateScore(-1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
+                      <Minus size={16} />
+                    </button>
+                    <div className="w-8 text-center">
+                      <p className="text-xl font-black text-stone-800">{currentHoleData.score}</p>
                     </div>
+                    <button onClick={() => updateScore(1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
+                      <Plus size={16} />
+                    </button>
+                    <p className={`text-[9px] font-bold uppercase w-14 text-right ${scoreIndicator.color}`}>{scoreIndicator.label}</p>
                   </div>
-                  <div className="w-px h-6 bg-stone-200" />
-                  <div className="flex-1 flex items-center justify-between">
-                    <span className="font-bold text-stone-700 text-sm">Putts</span>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => updatePutts(-1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
-                        <Minus size={14} />
-                      </button>
-                      <p className="text-xl font-black text-stone-800 w-7 text-center">{currentHoleData.putts}</p>
-                      <button onClick={() => updatePutts(1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
-                        <Plus size={14} />
-                      </button>
+                </div>
+
+                {/* Putts Row */}
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="font-bold text-stone-700 text-sm">Putts</span>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => updatePutts(-1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
+                      <Minus size={16} />
+                    </button>
+                    <div className="w-8 text-center">
+                      <p className="text-xl font-black text-stone-800">{currentHoleData.putts}</p>
+                    </div>
+                    <button onClick={() => updatePutts(1)} className="w-9 h-9 bg-stone-50 rounded-lg flex items-center justify-center text-stone-500 active:scale-90 transition-transform border border-stone-100">
+                      <Plus size={16} />
+                    </button>
+                    <div className="w-14" />
+                  </div>
+                </div>
+
+                {/* Club Selection Row */}
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="font-bold text-stone-700 text-sm">Tee Club</span>
+                  <div className="relative">
+                    <select
+                      value={selectedClubId}
+                      onChange={(e) => setSelectedClubId(e.target.value)}
+                      className="bg-stone-50 border border-stone-100 rounded-lg px-3 py-1.5 font-bold text-stone-600 appearance-none pr-7 outline-none text-sm"
+                    >
+                      <option disabled value="">Select</option>
+                      {bag.map(club => (
+                        <option key={club.id} value={club.id}>{club.name}</option>
+                      ))}
+                    </select>
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-stone-400">
+                      <ChevronRight size={14} className="rotate-90" />
                     </div>
                   </div>
                 </div>
 
-                {/* Club Selection Row - Tee + Approach side by side */}
-                <div className="flex items-center px-4 py-3 gap-3">
-                  <div className="flex-1 flex items-center justify-between">
-                    <span className="font-bold text-stone-700 text-sm">Tee</span>
+                {/* Approach Club Row - Par 4 & 5 only */}
+                {currentHoleData.par > 3 && (
+                  <div className="flex items-center justify-between px-4 py-2.5">
+                    <span className="font-bold text-stone-700 text-sm">Approach Club</span>
                     <div className="relative">
                       <select
-                        value={selectedClubId}
-                        onChange={(e) => setSelectedClubId(e.target.value)}
-                        className="bg-stone-50 border border-stone-100 rounded-lg pl-2.5 pr-6 py-1.5 font-bold text-stone-600 appearance-none outline-none text-sm max-w-[116px]"
+                        value={selectedApproachClubId}
+                        onChange={(e) => {
+                          setSelectedApproachClubId(e.target.value);
+                          setHasManuallySelectedApproachClub(true);
+                          setHoleStats(prev => ({
+                            ...prev,
+                            [currentHole]: {
+                              ...prev[currentHole],
+                              approachClub: e.target.value
+                            }
+                          }));
+                        }}
+                        className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-1.5 font-bold text-blue-600 appearance-none pr-7 outline-none text-sm"
                       >
                         <option disabled value="">Select</option>
                         {bag.map(club => (
                           <option key={club.id} value={club.id}>{club.name}</option>
                         ))}
                       </select>
-                      <div className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-stone-400">
-                        <ChevronRight size={12} className="rotate-90" />
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-blue-400">
+                        <ChevronRight size={14} className="rotate-90" />
                       </div>
-                    </div>
-                  </div>
-                  {currentHoleData.par > 3 && (
-                    <>
-                      <div className="w-px h-6 bg-stone-200" />
-                      <div className="flex-1 flex items-center justify-between">
-                        <span className="font-bold text-stone-700 text-sm">Appr.</span>
-                        <div className="relative">
-                          <select
-                            value={selectedApproachClubId}
-                            onChange={(e) => {
-                              setSelectedApproachClubId(e.target.value);
-                              setHasManuallySelectedApproachClub(true);
-                              setHoleStats(prev => ({
-                                ...prev,
-                                [currentHole]: {
-                                  ...prev[currentHole],
-                                  approachClub: e.target.value
-                                }
-                              }));
-                            }}
-                            className="bg-blue-50 border border-blue-100 rounded-lg pl-2.5 pr-6 py-1.5 font-bold text-blue-600 appearance-none outline-none text-sm max-w-[116px]"
-                          >
-                            <option disabled value="">Select</option>
-                            {bag.map(club => (
-                              <option key={club.id} value={club.id}>{club.name}</option>
-                            ))}
-                          </select>
-                          <div className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-blue-400">
-                            <ChevronRight size={12} className="rotate-90" />
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Fairway + GIR Row */}
-                {currentHoleData.par > 3 ? (
-                  <div className="flex items-center px-4 py-3 gap-3">
-                    <div className="flex-1 flex items-center justify-between">
-                      <span className="font-bold text-stone-700 text-sm">Fairway</span>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => setStatDirectly('fairway', true)}
-                          className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
-                            currentHoleData.fairway === true
-                              ? 'bg-emerald-500 border-emerald-500 text-white'
-                              : 'bg-stone-100 border-stone-300 text-stone-400'
-                          }`}
-                        >
-                          <Check size={16} strokeWidth={3} />
-                        </button>
-                        <button
-                          onClick={() => setStatDirectly('fairway', false)}
-                          className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
-                            currentHoleData.fairway === false
-                              ? 'bg-stone-400 border-stone-400 text-white'
-                              : 'bg-stone-100 border-stone-300 text-stone-400'
-                          }`}
-                        >
-                          <X size={16} strokeWidth={3} />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="w-px h-6 bg-stone-200" />
-                    <div className="flex-1 flex items-center justify-between">
-                      <span className="font-bold text-stone-700 text-sm">GIR</span>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => setStatDirectly('gir', true)}
-                          className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
-                            currentHoleData.gir === true
-                              ? 'bg-emerald-500 border-emerald-500 text-white'
-                              : 'bg-stone-100 border-stone-300 text-stone-400'
-                          }`}
-                        >
-                          <Check size={16} strokeWidth={3} />
-                        </button>
-                        <button
-                          onClick={() => setStatDirectly('gir', false)}
-                          className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
-                            currentHoleData.gir === false
-                              ? 'bg-stone-400 border-stone-400 text-white'
-                              : 'bg-stone-100 border-stone-300 text-stone-400'
-                          }`}
-                        >
-                          <X size={16} strokeWidth={3} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between px-4 py-3">
-                    <span className="font-bold text-stone-700 text-sm">GIR</span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => setStatDirectly('gir', true)}
-                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
-                          currentHoleData.gir === true
-                            ? 'bg-emerald-500 border-emerald-500 text-white'
-                            : 'bg-stone-100 border-stone-300 text-stone-400'
-                        }`}
-                      >
-                        <Check size={16} strokeWidth={3} />
-                      </button>
-                      <button
-                        onClick={() => setStatDirectly('gir', false)}
-                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
-                          currentHoleData.gir === false
-                            ? 'bg-stone-400 border-stone-400 text-white'
-                            : 'bg-stone-100 border-stone-300 text-stone-400'
-                        }`}
-                      >
-                        <X size={16} strokeWidth={3} />
-                      </button>
                     </div>
                   </div>
                 )}
 
-                {/* Miss direction strip — full width, only when a miss is recorded */}
-                <AnimatePresence>
-                  {(currentHoleData.fairway === false || currentHoleData.gir === false) && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="overflow-hidden"
+                {/* Fairway Row - Hidden on Par 3 */}
+                {currentHoleData.par > 3 && (
+                  <div className="flex items-center justify-between px-4 py-2.5">
+                    <span className="font-bold text-stone-700 text-sm">Fairway</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setStatDirectly('fairway', true)}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                          currentHoleData.fairway === true
+                            ? 'bg-emerald-500 border-emerald-500 text-white'
+                            : 'bg-stone-100 border-stone-300 text-stone-400'
+                        }`}
+                      >
+                        <Check size={20} strokeWidth={3} />
+                      </button>
+                      <button
+                        onClick={() => setStatDirectly('fairway', false)}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                          currentHoleData.fairway === false
+                            ? 'bg-stone-400 border-stone-400 text-white'
+                            : 'bg-stone-100 border-stone-300 text-stone-400'
+                        }`}
+                      >
+                        <X size={20} strokeWidth={3} />
+                      </button>
+                      <AnimatePresence>
+                        {currentHoleData.fairway === false && (
+                          <motion.div
+                            initial={{ opacity: 0, width: 0 }}
+                            animate={{ opacity: 1, width: 'auto' }}
+                            exit={{ opacity: 0, width: 0 }}
+                            className="flex items-center gap-1 overflow-hidden"
+                          >
+                            {(['left', 'long', 'short', 'right'] as const).map(dir => (
+                              <button
+                                key={dir}
+                                onClick={() => setTeeAccuracy(dir)}
+                                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border ${
+                                  currentHoleData.teeAccuracy === dir
+                                    ? 'bg-amber-500 border-amber-500 text-white'
+                                    : 'bg-white border-stone-200 text-stone-400 hover:border-amber-300'
+                                }`}
+                                title={dir.charAt(0).toUpperCase() + dir.slice(1)}
+                              >
+                                {dir === 'left' && <ChevronLeft size={16} />}
+                                {dir === 'long' && <ChevronUp size={16} />}
+                                {dir === 'short' && <ChevronDown size={16} />}
+                                {dir === 'right' && <ChevronRight size={16} />}
+                              </button>
+                            ))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+                )}
+
+                {/* GIR Row */}
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="font-bold text-stone-700 text-sm">GIR</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setStatDirectly('gir', true)}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                        currentHoleData.gir === true
+                          ? 'bg-emerald-500 border-emerald-500 text-white'
+                          : 'bg-stone-100 border-stone-300 text-stone-400'
+                      }`}
                     >
-                      <div className="px-4 py-3 space-y-2">
-                        {currentHoleData.par > 3 && currentHoleData.fairway === false && (
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wide">Tee Miss</span>
-                            <div className="flex items-center gap-1.5">
-                              {(['left', 'long', 'short', 'right'] as const).map(dir => (
-                                <button
-                                  key={dir}
-                                  onClick={() => setTeeAccuracy(dir)}
-                                  className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border ${
-                                    currentHoleData.teeAccuracy === dir
-                                      ? 'bg-amber-500 border-amber-500 text-white'
-                                      : 'bg-white border-stone-200 text-stone-400 hover:border-amber-300'
-                                  }`}
-                                  title={dir.charAt(0).toUpperCase() + dir.slice(1)}
-                                >
-                                  {dir === 'left' && <ChevronLeft size={16} />}
-                                  {dir === 'long' && <ChevronUp size={16} />}
-                                  {dir === 'short' && <ChevronDown size={16} />}
-                                  {dir === 'right' && <ChevronRight size={16} />}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {currentHoleData.gir === false && (
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wide">Approach Miss</span>
-                            <div className="flex items-center gap-1.5">
-                              {(['left', 'long', 'short', 'right'] as const).map(dir => (
-                                <button
-                                  key={dir}
-                                  onClick={() => setApproachAccuracy(dir)}
-                                  className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border ${
-                                    currentHoleData.approachAccuracy === dir
-                                      ? 'bg-amber-500 border-amber-500 text-white'
-                                      : 'bg-white border-stone-200 text-stone-400 hover:border-amber-300'
-                                  }`}
-                                  title={dir.charAt(0).toUpperCase() + dir.slice(1)}
-                                >
-                                  {dir === 'left' && <ChevronLeft size={16} />}
-                                  {dir === 'long' && <ChevronUp size={16} />}
-                                  {dir === 'short' && <ChevronDown size={16} />}
-                                  {dir === 'right' && <ChevronRight size={16} />}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                      <Check size={20} strokeWidth={3} />
+                    </button>
+                    <button
+                      onClick={() => setStatDirectly('gir', false)}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
+                        currentHoleData.gir === false
+                          ? 'bg-stone-400 border-stone-400 text-white'
+                          : 'bg-stone-100 border-stone-300 text-stone-400'
+                      }`}
+                    >
+                      <X size={20} strokeWidth={3} />
+                    </button>
+                    <AnimatePresence>
+                      {currentHoleData.gir === false && (
+                        <motion.div
+                          initial={{ opacity: 0, width: 0 }}
+                          animate={{ opacity: 1, width: 'auto' }}
+                          exit={{ opacity: 0, width: 0 }}
+                          className="flex items-center gap-1 overflow-hidden"
+                        >
+                          {(['left', 'long', 'short', 'right'] as const).map(dir => (
+                            <button
+                              key={dir}
+                              onClick={() => setApproachAccuracy(dir)}
+                              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border ${
+                                currentHoleData.approachAccuracy === dir
+                                  ? 'bg-amber-500 border-amber-500 text-white'
+                                  : 'bg-white border-stone-200 text-stone-400 hover:border-amber-300'
+                              }`}
+                              title={dir.charAt(0).toUpperCase() + dir.slice(1)}
+                            >
+                              {dir === 'left' && <ChevronLeft size={16} />}
+                              {dir === 'long' && <ChevronUp size={16} />}
+                              {dir === 'short' && <ChevronDown size={16} />}
+                              {dir === 'right' && <ChevronRight size={16} />}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
 
                 {/* Proximity to Hole Row — always visible */}
-                <div className="flex items-center justify-between px-4 py-3">
+                <div className="flex items-center justify-between px-4 py-2.5">
                   <span className="font-bold text-stone-700 text-sm">Proximity</span>
                   <div className="flex items-center gap-1.5">
                     {([6, 15, 20, 99] as const).map(prox => (
@@ -3083,41 +3009,41 @@ Requirements:
 
                 {/* Lay Up Row - Par 5 only */}
                 {currentHoleData.par === 5 && (
-                  <div className="flex items-center justify-between px-4 py-3">
+                  <div className="flex items-center justify-between px-4 py-2.5">
                     <span className="font-bold text-stone-700 text-sm">Lay Up</span>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-2">
                       <button
                         onClick={() => setStatDirectly('layUp', true)}
-                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
+                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.layUp === true
                             ? 'bg-emerald-500 border-emerald-500 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
                         }`}
                       >
-                        <Check size={16} strokeWidth={3} />
+                        <Check size={20} strokeWidth={3} />
                       </button>
                       <button
                         onClick={() => setStatDirectly('layUp', false)}
-                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
+                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.layUp === false
                             ? 'bg-stone-400 border-stone-400 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
                         }`}
                       >
-                        <X size={16} strokeWidth={3} />
+                        <X size={20} strokeWidth={3} />
                       </button>
                     </div>
                   </div>
                 )}
 
                 {/* Sand Save + Up & Down Row */}
-                <div className="flex items-center px-4 py-3 gap-4">
+                <div className="flex items-center px-4 py-2.5 gap-4">
                   <div className="flex-1 flex items-center justify-between">
-                    <span className="font-bold text-stone-700 text-sm">Sand Save</span>
+                    <span className="font-bold text-stone-700 text-xs">Sand Save</span>
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setStatDirectly('sandSave', true)}
-                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
+                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.sandSave === true
                             ? 'bg-emerald-500 border-emerald-500 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -3127,7 +3053,7 @@ Requirements:
                       </button>
                       <button
                         onClick={() => setStatDirectly('sandSave', false)}
-                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
+                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.sandSave === false
                             ? 'bg-stone-400 border-stone-400 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -3139,11 +3065,11 @@ Requirements:
                   </div>
                   <div className="w-px h-6 bg-stone-200" />
                   <div className="flex-1 flex items-center justify-between">
-                    <span className="font-bold text-stone-700 text-sm">Up & Down</span>
+                    <span className="font-bold text-stone-700 text-xs">Up & Down</span>
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setStatDirectly('upAndDown', true)}
-                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
+                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.upAndDown === true
                             ? 'bg-emerald-500 border-emerald-500 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -3153,7 +3079,7 @@ Requirements:
                       </button>
                       <button
                         onClick={() => setStatDirectly('upAndDown', false)}
-                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all border-2 ${
+                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all border-2 ${
                           currentHoleData.upAndDown === false
                             ? 'bg-stone-400 border-stone-400 text-white'
                             : 'bg-stone-100 border-stone-300 text-stone-400'
@@ -3442,9 +3368,26 @@ Requirements:
                 );
               })()}
 
+              {/* Hole Navigation - Bottom */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => changeHole(-1)}
+                  className="flex-1 flex items-center justify-center gap-1 py-3 bg-rose-50 text-rose-400 font-bold rounded-xl border border-rose-100 active:scale-95 transition-all text-sm"
+                >
+                  <ChevronLeft size={18} />
+                  #{Math.max(1, currentHole - 1)}
+                </button>
+                <button
+                  onClick={() => changeHole(1)}
+                  className="flex-1 flex items-center justify-center gap-1 py-3 bg-rose-50 text-rose-400 font-bold rounded-xl border border-rose-100 active:scale-95 transition-all text-sm"
+                >
+                  #{Math.min(18, currentHole + 1)}
+                  <ChevronRight size={18} />
+                </button>
+              </div>
 
-              {/* End Round / Cancel Round — only on hole 18 */}
-              {courseName && currentHole === 18 && (
+              {/* End Round / Cancel Round */}
+              {courseName && (
                 <div className="flex gap-2">
                   <button
                     onClick={() => {
